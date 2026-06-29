@@ -97,19 +97,6 @@ It blocks via the JSON permission path (`permissionDecision: "deny"`) and
 **always exits 0** — exit code 1 does *not* block in Claude Code.
 `${CLAUDE_PROJECT_DIR}` lets it find that project's own `rules/`.
 
-### What it costs (token usage)
-
-A fair question before running it on every edit. With deterministic rules
-(`pattern` / `structural`), the gate is **effectively token-free in steady
-state**: Claude Code runs it as a local binary (not a model-visible tool), and an
-*allow* returns empty output — nothing enters the model's context. You only
-"pay" when it **blocks**: a short reason string plus the agent's retry. That's
-the intended trade — a cheap stop now beats unwinding a bad edit later.
-
-The one expensive misconfiguration: an **`llm`-type rule in `runtime` scope**
-fires a full `claude` call on *every* Write/Edit. Keep runtime rules
-deterministic; leave `llm` for CI.
-
 ## Rules live in your project
 
 Warden is the engine; the policy is yours. The CLI ships **no default rules** and
@@ -123,6 +110,28 @@ A Rust toolchain + a C compiler (for the tree-sitter grammars) to build. At
 runtime, only the `llm` matcher reaches out — it shells out to the
 [`claude`](https://code.claude.com) CLI over your existing OAuth session (no
 `ANTHROPIC_API_KEY`); `--no-llm` skips it so everything else runs offline.
+
+## FAQ
+
+**Does running it on every edit cost tokens?** With deterministic rules
+(`pattern` / `structural`), effectively no — Claude Code runs it as a local
+binary (not a model-visible tool), and an *allow* injects nothing into the
+model's context. You only pay a retry when it **blocks** — the intended trade. The
+exception: an `llm`-type rule in `runtime` scope fires a `claude` call on *every*
+edit, so keep runtime rules deterministic and leave `llm` for CI.
+
+**What leaves my machine?** With `pattern` / `structural`, nothing — they run
+fully locally. Only the `llm` matcher sends the code under review to the `claude`
+CLI (over your own OAuth session); `--no-llm` keeps everything offline.
+
+**Won't false positives block me constantly?** Only if you start at `block`.
+Calibrate the way the `warden-rule-discovery` skill recommends: begin at
+`warn` / `audit`, scope with `paths`, and promote to `block` once the existing
+code is clean.
+
+**What if `claude` isn't installed, or I'm offline?** The `llm` matcher degrades
+to *inconclusive → pass* (with a warning); the deterministic layers are
+unaffected. `--no-llm` skips it outright.
 
 ## Docs
 
