@@ -1,5 +1,8 @@
 # Warden
 
+[![CI](https://github.com/nicolastakashi/warden/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolastakashi/warden/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 **A deterministic policy engine for AI-agent-generated code.** Write a rule once;
 enforce it both in CI (a 0–100 score, blocks on violations) and at runtime (a
 Claude Code hook that blocks a bad edit before it lands).

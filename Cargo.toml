@@ -2,7 +2,13 @@
 name = "warden"
 version = "0.1.0"
 edition = "2024"
-description = "A deterministic, agent-agnostic policy engine for AI-agent-generated code (POC)"
+rust-version = "1.88"
+description = "A deterministic, agent-agnostic policy engine for AI-agent-generated code"
+repository = "https://github.com/nicolastakashi/warden"
+license = "Apache-2.0"
+readme = "README.md"
+keywords = ["policy", "linter", "ai-agents", "tree-sitter", "claude"]
+categories = ["development-tools", "command-line-utilities"]
 
 [lib]
 name = "warden"
