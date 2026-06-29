@@ -74,7 +74,13 @@ Three matcher types:
 `warden validate --rules <dir>` checks every rule. Authoring help lives in two
 [Agent Skills](https://agentskills.io) under [`skills/`](skills/) —
 `warden-rule-author` and `warden-rule-discovery` — usable by any skills-compatible
-agent (`.claude/skills` symlinks to them for Claude Code).
+agent (Claude Code, Cursor, Codex, …). Install them into your own project with
+[skills.sh](https://www.skills.sh):
+
+```bash
+npx skills add nicolastakashi/warden          # both skills (prompts to pick)
+npx skills add nicolastakashi/warden --skill '*'   # all, non-interactive
+```
 
 ## Use it as a Claude Code hook
 
