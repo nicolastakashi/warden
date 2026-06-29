@@ -26,19 +26,19 @@ cargo test runtime_blocks_env    # a single test by name
 
 # run the CLI (rules dir is required — see "Rules live in the consuming project")
 cargo run -- validate --rules <dir>
-cargo run -- check <path> --rules <dir> [--no-llm] [--format human|json]
-echo '<PreToolUse payload>' | cargo run -- gate --rules <dir> [--no-llm]
+cargo run -- check <path> --rules <dir> [--format human|json]
+echo '<PreToolUse payload>' | cargo run -- gate --rules <dir>
 # or use the built binary directly: target/release/warden <...>
 
 # install on PATH so `warden` works anywhere (and as a Claude Code hook)
 cargo install --path .
 
 # end-to-end demos
-./demo/run_demo.sh [--no-llm]      # before (blocked) → after (pass) → gate block/allow
+./demo/run_demo.sh                 # before (blocked) → after (pass) → gate block/allow
 ./demo/try_with_claude.sh          # drives a REAL claude session; confirms the gate denies a Write
 ```
 
-`cargo test` is the gate. `--no-llm` makes everything run offline (the `llm` matcher is the only thing that reaches out).
+`cargo test` is the gate. Checks run fully locally and offline.
 
 ## Architecture — the load-bearing ideas
 
@@ -47,11 +47,10 @@ cargo install --path .
 **Matchers** (`src/matchers/`) all have signature `(units, rule) -> Vec<Violation>`, dispatched by `match_type`:
 - `pattern` — regex (the `regex` crate) over each line of a unit; language-agnostic.
 - `structural` — **tree-sitter** forbidden-imports; `from`/`to` are **file-path globs** (fnmatch semantics, `*` crosses `/`). Multi-language: the file's language is inferred from its extension (`src/lang.rs` maps `.py`→Python, `.go`→Go; add a grammar + extractor there for more). A file in an unsupported language, or that doesn't parse cleanly, is skipped. Imports are normalized to slash paths so one rule works across languages.
-- `llm` — **shells out to the `claude` CLI** (`claude -p` headless via `std::process::Command`), NOT a direct API call. Rides the dev's existing Claude Code login (no `ANTHROPIC_API_KEY`); `claude` must be installed + logged in. Parses defensively: anything malformed/unavailable → **inconclusive → counts as pass** + warning. Skippable with `--no-llm`, size-guarded against repo-wide prompts. The process call is behind the `ClaudeRunner` trait so it's faked in tests.
 
 **Rule schema** (`src/schema.rs`) is **closed** — `warden validate` rejects unknown fields — *except* the one optional `paths` field (a list of globs scoping a rule to a subtree; absent = all files). Fields: `id`, `description`, `why`, `scope ⊆ {ci,runtime}`, `enforcement ∈ {block,warn,audit}`, `weight ∈ {1,2,4}`, `match` (exactly one type). One rule per file; the schema is the single source of truth (`src/schema.rs`, `docs/design.md`).
 
-**CI gate** (`ci_gate.rs`): filter rules to `scope` ∋ `ci` → apply each rule's `paths` → run matchers in order pattern→structural→llm → two independent results: **enforcement** (any violated `block` → exit 1) and a **weighted score** = `Σ(weight of passed scored rules)/Σ(weight of scored rules)×100`. Only `block`+`warn` are scored; `audit` is logged only. Score is **binary per rule** (`extent` is recorded but never weights it). No scored rules → 100.
+**CI gate** (`ci_gate.rs`): filter rules to `scope` ∋ `ci` → apply each rule's `paths` → run matchers in order pattern→structural → two independent results: **enforcement** (any violated `block` → exit 1) and a **weighted score** = `Σ(weight of passed scored rules)/Σ(weight of scored rules)×100`. Only `block`+`warn` are scored; `audit` is logged only. Score is **binary per rule** (`extent` is recorded but never weights it). No scored rules → 100.
 
 **Runtime gate** (`runtime_gate.rs`): filter to `scope` ∋ `runtime`, read **only** `enforcement` (weight/score are meaningless for one action), and a rule whose `paths` don't match the action's path doesn't apply. **Blocking is via JSON `permissionDecision: "deny"` and exit 0** — exit code 1 does NOT block in Claude Code. All of that lives in `adapters/claude_code.rs`; don't rely on exit codes to block.
 
@@ -61,4 +60,4 @@ There are **no bundled default rules**. The CLI resolves the rules dir as `--rul
 
 ## Authoring skills
 
-The two rule-authoring skills (`warden-rule-author`, `warden-rule-discovery`) follow the open [Agent Skills](https://agentskills.io) standard — a folder + `SKILL.md` (name/description frontmatter), usable by any skills-compatible agent (Cursor, Codex, Gemini CLI, Claude Code, …). They live in **`skills/`** at the root, *not* under a tool-specific path, and install into any project with `npx skills add nicolastakashi/warden` ([skills.sh](https://www.skills.sh)). For local Claude Code discovery in this repo, symlink `.claude/skills -> ../skills` (gitignored). Keep them agent-agnostic — describe the task, not a specific agent; declare tool dependencies (the `warden`/`claude` CLIs) in the `compatibility` frontmatter field.
+The two rule-authoring skills (`warden-rule-author`, `warden-rule-discovery`) follow the open [Agent Skills](https://agentskills.io) standard — a folder + `SKILL.md` (name/description frontmatter), usable by any skills-compatible agent (Cursor, Codex, Gemini CLI, Claude Code, …). They live in **`skills/`** at the root, *not* under a tool-specific path, and install into any project with `npx skills add nicolastakashi/warden` ([skills.sh](https://www.skills.sh)). For local Claude Code discovery in this repo, symlink `.claude/skills -> ../skills` (gitignored). Keep them agent-agnostic — describe the task, not a specific agent; declare tool dependencies (the `warden` CLI) in the `compatibility` frontmatter field.

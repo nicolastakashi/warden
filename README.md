@@ -19,13 +19,13 @@ authority that checks an agent's output regardless of what the agent
 
 ```bash
 cargo install --path .          # build + put `warden` on PATH (needs a C compiler)
-./demo/run_demo.sh --no-llm     # see it block a messy tree and pass a clean one
+./demo/run_demo.sh              # see it block a messy tree and pass a clean one
 ```
 
 A check looks like this:
 
 ```
-$ warden check examples --rules demo/rules --no-llm
+$ warden check examples --rules demo/rules
 Score: 60/100 (Fair)   files checked: 3   BLOCKED
 
 Blocking failures:
@@ -63,13 +63,12 @@ match:
   patterns: ['os\.getenv']
 ```
 
-Three matcher types:
+Two matcher types:
 
 | type | how | use for |
 |---|---|---|
 | `pattern` | regex over each line | literal / syntactic signals |
 | `structural` | tree-sitter forbidden-imports (multi-language, by file extension) | architectural boundaries |
-| `llm` | delegates to the `claude` CLI for a strict JSON verdict | judgment a regex can't express |
 
 `warden validate --rules <dir>` checks every rule. Authoring help lives in two
 [Agent Skills](https://agentskills.io) under [`skills/`](skills/) —
@@ -114,32 +113,23 @@ resolves them as `--rules <dir>` → `$CLAUDE_PROJECT_DIR/rules` → `./rules`
 
 ## Requirements
 
-A Rust toolchain + a C compiler (for the tree-sitter grammars) to build. At
-runtime, only the `llm` matcher reaches out — it shells out to the
-[`claude`](https://code.claude.com) CLI over your existing OAuth session (no
-`ANTHROPIC_API_KEY`); `--no-llm` skips it so everything else runs offline.
+A Rust toolchain and a C compiler (for the tree-sitter grammars) to build. At
+runtime it needs nothing external — checks run fully locally and offline.
 
 ## FAQ
 
-**Does running it on every edit cost tokens?** With deterministic rules
-(`pattern` / `structural`), effectively no — Claude Code runs it as a local
-binary (not a model-visible tool), and an *allow* injects nothing into the
-model's context. You only pay a retry when it **blocks** — the intended trade. The
-exception: an `llm`-type rule in `runtime` scope fires a `claude` call on *every*
-edit, so keep runtime rules deterministic and leave `llm` for CI.
+**Does running it on every edit cost tokens?** Effectively no — Claude Code runs
+it as a local binary (not a model-visible tool), and an *allow* injects nothing
+into the model's context. You only pay a retry when it **blocks** — the intended
+trade (a cheap stop now beats unwinding a bad edit later).
 
-**What leaves my machine?** With `pattern` / `structural`, nothing — they run
-fully locally. Only the `llm` matcher sends the code under review to the `claude`
-CLI (over your own OAuth session); `--no-llm` keeps everything offline.
+**What leaves my machine?** Nothing — checks run fully locally; Warden makes no
+network calls.
 
 **Won't false positives block me constantly?** Only if you start at `block`.
 Calibrate the way the `warden-rule-discovery` skill recommends: begin at
 `warn` / `audit`, scope with `paths`, and promote to `block` once the existing
 code is clean.
-
-**What if `claude` isn't installed, or I'm offline?** The `llm` matcher degrades
-to *inconclusive → pass* (with a warning); the deterministic layers are
-unaffected. `--no-llm` skips it outright.
 
 ## Docs
 

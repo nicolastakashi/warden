@@ -63,13 +63,13 @@ validate` rejects unknown fields) except for the one optional `paths` field:
 ```yaml
 id: no-env-vars                  # unique, kebab-case
 description: "..."               # the one-liner shown as file:line — description
-why: "..."                       # rationale; also passed to the llm matcher
+why: "..."                       # rationale; shown in output / to reviewers
 scope: [ci]                      # subset of: ci, runtime
 enforcement: block               # block | warn | audit
 weight: 4                        # 1 | 2 | 4   (CI scorer only)
 paths: ["src/**"]                # OPTIONAL — scope to a subtree (default: all files)
 match:                           # exactly one type
-  type: pattern                  # pattern | structural | llm
+  type: pattern                  # pattern | structural
   # ...type-specific fields
 ```
 
@@ -78,17 +78,16 @@ skill teaches an agent to write it correctly.
 
 ## 4. Matchers
 
-A matcher is `(units, rule) -> list[Violation]`. Three types, deliberately
-ordered cheapest-first in the CI pipeline (pattern → structural → llm):
+A matcher is `(units, rule) -> list[Violation]`. Two types, deliberately
+ordered cheapest-first in the CI pipeline (pattern → structural):
 
 | type | how | language | notes |
 |---|---|---|---|
 | **pattern** | regex over each line of a unit, OR-combined flat list | any (regex) | literal/syntactic signals |
 | **structural** | **tree-sitter** forbidden imports; `from`/`to` are file-path globs | multi (per-extension: Python, Go, …) | architectural boundaries; unsupported-language or unparseable files skipped |
-| **llm** | shells out to `claude -p` headless, strict JSON verdict | any | judgment a regex can't express; defensive (malformed/missing → inconclusive → pass); size-guarded; `--no-llm` skips |
 
 A rule's optional `paths` filters which units a matcher even sees — this is what
-lets pattern/llm rules target a subtree, the way structural's `from` glob
+lets pattern rules target a subtree, the way structural's `from` glob
 already does.
 
 ## 5. CI gate (`ci_gate.rs`)
