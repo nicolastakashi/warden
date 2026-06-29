@@ -97,6 +97,19 @@ It blocks via the JSON permission path (`permissionDecision: "deny"`) and
 **always exits 0** — exit code 1 does *not* block in Claude Code.
 `${CLAUDE_PROJECT_DIR}` lets it find that project's own `rules/`.
 
+### What it costs (token usage)
+
+A fair question before running it on every edit. With deterministic rules
+(`pattern` / `structural`), the gate is **effectively token-free in steady
+state**: Claude Code runs it as a local binary (not a model-visible tool), and an
+*allow* returns empty output — nothing enters the model's context. You only
+"pay" when it **blocks**: a short reason string plus the agent's retry. That's
+the intended trade — a cheap stop now beats unwinding a bad edit later.
+
+The one expensive misconfiguration: an **`llm`-type rule in `runtime` scope**
+fires a full `claude` call on *every* Write/Edit. Keep runtime rules
+deterministic; leave `llm` for CI.
+
 ## Rules live in your project
 
 Warden is the engine; the policy is yours. The CLI ships **no default rules** and
