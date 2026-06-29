@@ -84,8 +84,8 @@ npx skills add nicolastakashi/warden --skill '*'   # all, non-interactive
 
 ## Use it as a Claude Code hook
 
-`warden gate` reads a `PreToolUse` payload on stdin and decides. Wire it in
-`.claude/settings.json` ([example](.claude/settings.example.json)):
+`warden gate` reads a `PreToolUse` payload on stdin and decides. Wire it into
+your agent's hook config — for Claude Code, `.claude/settings.json`:
 
 ```json
 {

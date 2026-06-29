@@ -4,5 +4,8 @@
 # macOS
 .DS_Store
 
-# Claude Code personal settings (not shared)
-.claude/settings.local.json
+# Claude Code is one agent among many — its config is local, not versioned.
+# (AGENTS.md is the shared, tool-neutral guide; skills live in skills/.)
+# Anchored to the repo root so the demo's demo/.claude/ fixture stays tracked.
+/.claude/
+/CLAUDE.md

@@ -1,8 +1,11 @@
 # Warden — guide for AI agents
 
-Conventions, architecture, and commands for working in this repo. Tool-agnostic:
-any AI coding agent (Claude Code, Cursor, Codex, …) should read this. Claude Code
-loads it via `@AGENTS.md` from `CLAUDE.md`, which adds Claude-specific notes.
+Conventions, architecture, and commands for working in this repo. **This is the
+canonical, tool-neutral project guide** — any AI coding agent (Claude Code,
+Cursor, Codex, …) should read it. Agent-specific glue (a `CLAUDE.md`, a
+`.claude/` directory) is intentionally **not versioned**; it's local per
+developer/agent. Claude Code users can `ln -s AGENTS.md CLAUDE.md` locally to
+auto-load this.
 
 ## What this is
 
@@ -54,8 +57,8 @@ cargo install --path .
 
 ## Rules live in the consuming project — the engine ships none
 
-There are **no bundled default rules**. The CLI resolves the rules dir as `--rules <dir>` → `$CLAUDE_PROJECT_DIR/rules` → `./rules`, and errors if none is found. This repo dogfoods itself: its own policy is in **`rules/`** at the root (the `core-stays-agent-agnostic` and `no-direct-anthropic-api` rules, enforced on `src/` and wired as a live `PreToolUse` hook in `.claude/settings.json`). The `demo/` fake app plays the role of a separate consuming project with its own `demo/rules/` (`demo/before/` is messy, `demo/after/` is clean). `examples/` holds minimal fixtures used by the gate tests. A real project keeps its own `rules/` at its root; the runtime hook finds it via `${CLAUDE_PROJECT_DIR}`.
+There are **no bundled default rules**. The CLI resolves the rules dir as `--rules <dir>` → `$CLAUDE_PROJECT_DIR/rules` → `./rules`, and errors if none is found. This repo dogfoods itself: its own policy is in **`rules/`** at the root (the `core-stays-agent-agnostic` and `no-direct-anthropic-api` rules, enforced on `src/`). The runtime hook that runs them is wired locally (for Claude Code, a `.claude/settings.json` calling `warden gate` — gitignored, since the wiring is per-agent; the shared artifact is the policy in `rules/`). The `demo/` fake app plays the role of a separate consuming project with its own `demo/rules/` (`demo/before/` is messy, `demo/after/` is clean). `examples/` holds minimal fixtures used by the gate tests. A real project keeps its own `rules/` at its root; the runtime hook finds it via `${CLAUDE_PROJECT_DIR}`.
 
 ## Authoring skills
 
-The two rule-authoring skills (`warden-rule-author`, `warden-rule-discovery`) follow the open [Agent Skills](https://agentskills.io) standard — a folder + `SKILL.md` (name/description frontmatter), usable by any skills-compatible agent (Cursor, Codex, Gemini CLI, Claude Code, …). They live in **`skills/`** at the root, *not* under a tool-specific path; `.claude/skills` is just a symlink to `skills/` so Claude Code discovers them. Keep them agent-agnostic — describe the task, not a specific agent; declare tool dependencies (the `warden`/`claude` CLIs) in the `compatibility` frontmatter field.
+The two rule-authoring skills (`warden-rule-author`, `warden-rule-discovery`) follow the open [Agent Skills](https://agentskills.io) standard — a folder + `SKILL.md` (name/description frontmatter), usable by any skills-compatible agent (Cursor, Codex, Gemini CLI, Claude Code, …). They live in **`skills/`** at the root, *not* under a tool-specific path, and install into any project with `npx skills add nicolastakashi/warden` ([skills.sh](https://www.skills.sh)). For local Claude Code discovery in this repo, symlink `.claude/skills -> ../skills` (gitignored). Keep them agent-agnostic — describe the task, not a specific agent; declare tool dependencies (the `warden`/`claude` CLIs) in the `compatibility` frontmatter field.
