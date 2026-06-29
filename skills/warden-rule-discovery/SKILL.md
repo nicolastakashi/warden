@@ -10,6 +10,7 @@ description: >-
   decided rule, which is the sibling skill `warden-rule-author`. It surveys the
   repo, proposes a prioritized, evidence-backed rule set, confirms the real
   intent with a maintainer, then hands each confirmed rule to the author skill.
+compatibility: "Requires the warden CLI; llm-rule dry-runs also need the claude CLI."
 ---
 
 # Discovering Warden rules for a codebase

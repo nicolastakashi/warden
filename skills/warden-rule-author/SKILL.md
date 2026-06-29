@@ -2,7 +2,7 @@
 name: warden-rule-author
 description: >-
   Author Warden rules — the rules/*.yaml files the `warden` CLI enforces
-  as a CI gate (scored) and a runtime gate (block/allow on a Claude Code action).
+  as a CI gate (scored) and a runtime gate (block/allow on a proposed agent action).
   Use this whenever someone wants to add, write, create, or edit a warden policy
   rule, or turn a coding convention or a "ban/avoid/forbid/require/warn on X"
   guideline into an enforceable rule. Trigger even when the intent is described
@@ -11,6 +11,7 @@ description: >-
   prod code". Also use when asked how the rule schema works (id, scope,
   enforcement, weight, or the pattern / structural / llm match types). Always
   finish by running `warden validate` so the rule is proven valid.
+compatibility: "Requires the warden CLI; llm-rule dry-runs also need the claude CLI."
 ---
 
 # Authoring Warden rules
@@ -51,8 +52,8 @@ match:                           # exactly one type
 ## scope — which consumer evaluates the rule
 
 - `ci` — the CI gate checks a diff/path, scores it 0–100, and can block.
-- `runtime` — the runtime gate checks **one** proposed Claude Code action
-  (Write/Edit/Bash) via a hook and returns block/allow. It reads only
+- `runtime` — the runtime gate checks **one** proposed agent action
+  (e.g. a Write/Edit/Bash) via a hook and returns block/allow. It reads only
   `enforcement`; it ignores `weight` and the score (meaningless for one action).
 - A rule may be in both (e.g. the critical env-var rule). Put it in `runtime`
   only when it makes sense to judge a single action against it — `pattern` and

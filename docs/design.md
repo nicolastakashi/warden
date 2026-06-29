@@ -73,7 +73,7 @@ match:                           # exactly one type
   # ...type-specific fields
 ```
 
-The schema is the single source of truth; the [`warden-rule-author`](../.claude/skills/warden-rule-author/SKILL.md)
+The schema is the single source of truth; the [`warden-rule-author`](../skills/warden-rule-author/SKILL.md)
 skill teaches an agent to write it correctly.
 
 ## 4. Matchers
@@ -158,7 +158,7 @@ src/
 rules/                       # this repo's own dogfood policy (enforced on src/)
 demo/                        # a fake app: before/ (messy) vs after/ (clean) + its own rules/
 examples/                    # minimal fixtures used by the gate tests
-.claude/skills/              # warden-rule-discovery + warden-rule-author
+skills/              # warden-rule-discovery + warden-rule-author
 tests/                       # Rust integration tests (the ported suite + a Go case)
 ```
 
@@ -172,11 +172,11 @@ project).
 
 Two skills form a pipeline for authoring policy:
 
-- **[warden-rule-discovery](../.claude/skills/warden-rule-discovery/SKILL.md)** —
+- **[warden-rule-discovery](../skills/warden-rule-discovery/SKILL.md)** —
   investigate a codebase (docs → lint config → structure → grep for evidence +
   extent), propose a prioritized, evidence-backed rule set, and **confirm intent
   with a maintainer before committing** (static signals mislead about intent).
-- **[warden-rule-author](../.claude/skills/warden-rule-author/SKILL.md)** —
+- **[warden-rule-author](../skills/warden-rule-author/SKILL.md)** —
   given a confirmed intent, produce a valid `rules/*.yaml` and validate it.
 
 ## 9. How it was validated

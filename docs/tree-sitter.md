@@ -177,7 +177,7 @@ The honest cost lives here: a `.scm` query is **grammar-specific** — node name
 (`comparison_operator`, `import_from_statement`, …) come from each language's
 grammar, so authoring queries has a real learning curve. Mitigations in §8:
 keep the `forbidden` sugar for the common case, ship a query cookbook, and teach
-the [`warden-rule-author`](../.claude/skills/warden-rule-author/SKILL.md) skill.
+the [`warden-rule-author`](../skills/warden-rule-author/SKILL.md) skill.
 
 ## 6. Alternative considered — just enrich the `ast` matcher
 

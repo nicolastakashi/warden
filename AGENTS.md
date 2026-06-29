@@ -55,3 +55,7 @@ cargo install --path .
 ## Rules live in the consuming project — the engine ships none
 
 There are **no bundled default rules**. The CLI resolves the rules dir as `--rules <dir>` → `$CLAUDE_PROJECT_DIR/rules` → `./rules`, and errors if none is found. This repo dogfoods itself: its own policy is in **`rules/`** at the root (the `core-stays-agent-agnostic` and `no-direct-anthropic-api` rules, enforced on `src/` and wired as a live `PreToolUse` hook in `.claude/settings.json`). The `demo/` fake app plays the role of a separate consuming project with its own `demo/rules/` (`demo/before/` is messy, `demo/after/` is clean). `examples/` holds minimal fixtures used by the gate tests. A real project keeps its own `rules/` at its root; the runtime hook finds it via `${CLAUDE_PROJECT_DIR}`.
+
+## Authoring skills
+
+The two rule-authoring skills (`warden-rule-author`, `warden-rule-discovery`) follow the open [Agent Skills](https://agentskills.io) standard — a folder + `SKILL.md` (name/description frontmatter), usable by any skills-compatible agent (Cursor, Codex, Gemini CLI, Claude Code, …). They live in **`skills/`** at the root, *not* under a tool-specific path; `.claude/skills` is just a symlink to `skills/` so Claude Code discovers them. Keep them agent-agnostic — describe the task, not a specific agent; declare tool dependencies (the `warden`/`claude` CLIs) in the `compatibility` frontmatter field.

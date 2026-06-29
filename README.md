@@ -71,8 +71,10 @@ Three matcher types:
 | `structural` | tree-sitter forbidden-imports (multi-language, by file extension) | architectural boundaries |
 | `llm` | delegates to the `claude` CLI for a strict JSON verdict | judgment a regex can't express |
 
-`warden validate --rules <dir>` checks every rule. Authoring help lives in the
-`warden-rule-author` and `warden-rule-discovery` skills under `.claude/skills/`.
+`warden validate --rules <dir>` checks every rule. Authoring help lives in two
+[Agent Skills](https://agentskills.io) under [`skills/`](skills/) —
+`warden-rule-author` and `warden-rule-discovery` — usable by any skills-compatible
+agent (`.claude/skills` symlinks to them for Claude Code).
 
 ## Use it as a Claude Code hook
 
