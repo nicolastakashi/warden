@@ -1,0 +1,28 @@
+id: core-stays-agent-agnostic
+description: "The engine core must not import the Claude Code adapter"
+why: "AGENTS.md: the agent-agnostic core is the whole point — the engine only sees CodeUnit/ProposedAction in and Violation/GateDecision out, and the *entire* Claude surface is the two translation functions in adapters/claude_code.rs. Only main.rs (the binary) may wire the adapter. If a matcher, gate, or schema module references crate::adapters, agent-specific concepts leak into the core and 'support another agent = a new parse_*/format_* pair, zero core changes' stops being true."
+
+scope: [ci, runtime]
+enforcement: block
+weight: 4
+
+# Core modules only. Deliberately excludes main.rs (the binary, which wires the
+# adapter) and src/adapters/ itself (it *is* the Claude surface).
+paths:
+  - "**/src/matchers/**"
+  - "**/src/report/**"
+  - "**/src/ci_gate.rs"
+  - "**/src/runtime_gate.rs"
+  - "**/src/schema.rs"
+  - "**/src/score.rs"
+  - "**/src/results.rs"
+  - "**/src/load.rs"
+  - "**/src/glob.rs"
+  - "**/src/lang.rs"
+  - "**/src/lib.rs"
+
+match:
+  type: pattern
+  patterns:
+    - 'crate::adapters'
+    - 'super::adapters'

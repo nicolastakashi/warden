@@ -1,0 +1,16 @@
+id: no-direct-anthropic-api
+description: "Do not call the Anthropic API directly — the llm matcher rides the claude CLI"
+why: "By design the llm matcher shells out to the `claude` CLI (claude -p, headless) over the developer's existing OAuth login, NOT a direct HTTP call to the Anthropic API or an SDK. Hitting api.anthropic.com (or pulling in an `anthropic` crate) reintroduces the API-key dependency we deliberately avoided and splits the project across two auth paths. If we ever want direct API access it should be a deliberate, reviewed decision — not something an agent slips into a matcher."
+
+scope: [ci, runtime]
+enforcement: block
+weight: 4
+
+paths:
+  - "**/src/**"
+
+match:
+  type: pattern
+  patterns:
+    - 'api\.anthropic\.com'
+    - 'use\s+anthropic\b'

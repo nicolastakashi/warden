@@ -1,0 +1,49 @@
+//! Discover and parse `rules/*.yaml` into validated Rule objects.
+
+use std::collections::HashMap;
+use std::path::Path;
+
+use serde_norway::Value;
+
+use crate::schema::{build_rule, Rule, RuleError};
+
+/// Load every `*.yaml` under `dir` as one rule each. Errors on any invalid rule
+/// or duplicate id, naming the file.
+pub fn load_rules(dir: &Path) -> Result<Vec<Rule>, RuleError> {
+    if !dir.is_dir() {
+        return Err(RuleError(format!(
+            "rules directory not found: {}",
+            dir.display()
+        )));
+    }
+
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| RuleError(format!("{}: {e}", dir.display())))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("yaml"))
+        .collect();
+    files.sort();
+
+    let mut rules: Vec<Rule> = Vec::new();
+    let mut seen: HashMap<String, String> = HashMap::new();
+
+    for path in files {
+        let display = path.display().to_string();
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| RuleError(format!("{display}: {e}")))?;
+        let value: Value = serde_norway::from_str(&text)
+            .map_err(|e| RuleError(format!("{display}: invalid YAML: {e}")))?;
+        let rule = build_rule(&value, &display)?;
+
+        if let Some(other) = seen.get(&rule.id) {
+            return Err(RuleError(format!(
+                "{display}: duplicate rule id '{}' (also in {other})",
+                rule.id
+            )));
+        }
+        seen.insert(rule.id.clone(), display);
+        rules.push(rule);
+    }
+
+    Ok(rules)
+}

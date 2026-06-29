@@ -1,0 +1,11 @@
+id: prefer-flag-helper
+description: "Prefer the get_flag() helper over direct FEATURE_FLAGS access"
+why: "The helper centralises defaults and overrides; direct dict access skips them."
+
+scope: [ci]
+enforcement: audit
+weight: 1
+
+match:
+  type: pattern
+  patterns: ['FEATURE_FLAGS\[']

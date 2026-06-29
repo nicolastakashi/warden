@@ -1,0 +1,161 @@
+//! Consumer 1 — the CI gate.
+//!
+//! Pipeline: gather units from a path -> filter to scope contains `ci` -> apply
+//! each rule's `paths` -> run matchers (pattern, then structural, then llm) ->
+//! two independent results: enforcement (any violated `block` -> blocked) and a
+//! weighted 0–100 score.
+
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+
+use crate::glob::fnmatch;
+use crate::matchers::{run_matcher, units_for_rule, CodeUnit, RealClaude};
+use crate::results::{CheckResult, RuleResult};
+use crate::schema::Rule;
+use crate::score::{band, compute_score};
+
+// Extensions treated as scannable text. Structural still self-filters by lang.
+const TEXT_SUFFIXES: [&str; 16] = [
+    ".py", ".pyi", ".txt", ".md", ".cfg", ".ini", ".toml", ".yaml", ".yml", ".json", ".env",
+    ".sh", ".js", ".ts", ".go", ".rs",
+];
+
+// Directories never worth scanning — VCS metadata, build output, vendored deps.
+// Skipped so `warden check .` doesn't raise violations from artifacts.
+const IGNORE_DIRS: [&str; 9] = [
+    ".git",
+    "target",
+    "node_modules",
+    ".venv",
+    "dist",
+    "build",
+    "__pycache__",
+    ".mypy_cache",
+    ".pytest_cache",
+];
+
+fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if IGNORE_DIRS.contains(&name) {
+                    continue;
+                }
+                walk_files(&path, out);
+            } else if path.is_file() {
+                out.push(path);
+            }
+        }
+    }
+}
+
+/// The literal directory prefix of a glob, before the first wildcard — the place
+/// to start walking. `src/**/*.rs` -> `src`; `*.rs` -> `.`.
+fn glob_base(pattern: &str) -> PathBuf {
+    let first_wild = pattern
+        .find(|c| matches!(c, '*' | '?' | '['))
+        .unwrap_or(pattern.len());
+    match pattern[..first_wild].rfind('/') {
+        Some(i) => PathBuf::from(&pattern[..i]),
+        None => PathBuf::from("."),
+    }
+}
+
+fn has_scannable_suffix(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => TEXT_SUFFIXES.contains(&format!(".{ext}").as_str()),
+        None => true, // no extension -> treat as text (e.g. Makefile)
+    }
+}
+
+/// Build CodeUnits from a path: a file, a directory (recursive), or a glob.
+pub fn gather_units(target: &str) -> Vec<CodeUnit> {
+    let path = Path::new(target);
+    let mut files: Vec<PathBuf> = Vec::new();
+
+    if path.is_dir() {
+        walk_files(path, &mut files);
+    } else if path.is_file() {
+        files.push(path.to_path_buf());
+    } else {
+        // Treat the target as a glob, using the SAME fnmatch semantics as rule
+        // `paths` (one glob behavior everywhere: `*` crosses `/`).
+        let mut candidates = Vec::new();
+        walk_files(&glob_base(target), &mut candidates);
+        for p in candidates {
+            let s = p.to_string_lossy();
+            let norm = s.strip_prefix("./").unwrap_or(&s);
+            if fnmatch(norm, target) {
+                files.push(p);
+            }
+        }
+    }
+    files.sort();
+
+    let mut units = Vec::new();
+    for f in files {
+        if !has_scannable_suffix(&f) {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(&f) {
+            units.push(CodeUnit {
+                path: f.to_string_lossy().to_string(),
+                content,
+            });
+        }
+    }
+    units
+}
+
+fn match_order(match_type: &str) -> u8 {
+    match match_type {
+        "pattern" => 0,
+        "structural" => 1,
+        "llm" => 2,
+        _ => 3,
+    }
+}
+
+pub fn run_check(target: &str, rules: &[Rule], no_llm: bool) -> CheckResult {
+    let units = gather_units(target);
+    let files_checked = units.len();
+
+    // pattern -> structural -> llm, so deterministic layers run before Claude.
+    let mut ci_rules: Vec<&Rule> = rules.iter().filter(|r| r.in_ci()).collect();
+    ci_rules.sort_by_key(|r| match_order(&r.match_type));
+
+    let runner = RealClaude;
+    let mut results: Vec<RuleResult> = Vec::new();
+    let mut blocked = false;
+
+    for rule in ci_rules {
+        let scoped = units_for_rule(&units, rule); // honour optional paths
+        let violations = run_matcher(&scoped, rule, no_llm, &runner);
+        let fired_files: HashSet<&str> =
+            violations.iter().map(|v| v.location.file.as_str()).collect();
+        let extent = if scoped.is_empty() {
+            0.0
+        } else {
+            fired_files.len() as f64 / scoped.len() as f64
+        };
+        if !violations.is_empty() && rule.enforcement == "block" {
+            blocked = true;
+        }
+        results.push(RuleResult {
+            rule: rule.clone(),
+            violations,
+            extent,
+        });
+    }
+
+    let score = compute_score(&results);
+    CheckResult {
+        band: band(score).to_string(),
+        results,
+        score,
+        blocked,
+        files_checked,
+    }
+}
