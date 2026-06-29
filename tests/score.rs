@@ -2,7 +2,7 @@
 
 use warden::matchers::{Location, Violation};
 use warden::results::RuleResult;
-use warden::schema::{build_rule, Rule};
+use warden::schema::{Rule, build_rule};
 use warden::score::{band, compute_score};
 
 fn rule(id: &str, enforcement: &str, weight: i64) -> Rule {
@@ -53,8 +53,8 @@ fn audit_excluded_from_score() {
 #[test]
 fn warn_counts_in_score() {
     let results = vec![
-        result("a", "block", 4, true),  // failed, weight 4
-        result("b", "warn", 2, false),  // passed, weight 2
+        result("a", "block", 4, true), // failed, weight 4
+        result("b", "warn", 2, false), // passed, weight 2
     ];
     // passed weight 2 / total 6 = 33
     assert_eq!(compute_score(&results), 33);

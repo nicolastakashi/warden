@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_norway::Value;
 
-use crate::schema::{build_rule, Rule, RuleError};
+use crate::schema::{Rule, RuleError, build_rule};
 
 /// Load every `*.yaml` under `dir` as one rule each. Errors on any invalid rule
 /// or duplicate id, naming the file.
@@ -29,8 +29,8 @@ pub fn load_rules(dir: &Path) -> Result<Vec<Rule>, RuleError> {
 
     for path in files {
         let display = path.display().to_string();
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| RuleError(format!("{display}: {e}")))?;
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| RuleError(format!("{display}: {e}")))?;
         let value: Value = serde_norway::from_str(&text)
             .map_err(|e| RuleError(format!("{display}: invalid YAML: {e}")))?;
         let rule = build_rule(&value, &display)?;

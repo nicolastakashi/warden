@@ -4,11 +4,11 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
 
-use warden::matchers::base::{units_for_rule, CodeUnit};
-use warden::matchers::llm::{match_llm, ClaudeRunner, ProcOutput, MAX_CHARS};
+use warden::matchers::base::{CodeUnit, units_for_rule};
+use warden::matchers::llm::{ClaudeRunner, MAX_CHARS, ProcOutput, match_llm};
 use warden::matchers::pattern::match_pattern;
 use warden::matchers::structural::match_structural;
-use warden::schema::{build_rule, Rule};
+use warden::schema::{Rule, build_rule};
 
 fn rule_from(yaml: &str) -> Rule {
     let value: serde_norway::Value = serde_norway::from_str(yaml).expect("test YAML parses");
@@ -79,7 +79,10 @@ match:
 
 #[test]
 fn structural_fires_on_import_from() {
-    let unit = CodeUnit::new("src/billing/charge.py", "from src.notifications import email\n");
+    let unit = CodeUnit::new(
+        "src/billing/charge.py",
+        "from src.notifications import email\n",
+    );
     let v = match_structural(&[unit], &struct_rule());
     assert_eq!(v.len(), 1);
     assert_eq!(v[0].location.line, 1);
@@ -113,7 +116,10 @@ fn structural_clean_file_passes() {
 
 #[test]
 fn structural_from_glob_scopes_the_source_file() {
-    let unit = CodeUnit::new("src/api/handler.py", "from src.notifications import email\n");
+    let unit = CodeUnit::new(
+        "src/api/handler.py",
+        "from src.notifications import email\n",
+    );
     assert!(match_structural(&[unit], &struct_rule()).is_empty());
 }
 
@@ -131,7 +137,10 @@ fn structural_skips_non_supported_language() {
 
 #[test]
 fn structural_survives_syntax_error() {
-    let unit = CodeUnit::new("src/billing/broken.py", "def (:\n  import src.notifications\n");
+    let unit = CodeUnit::new(
+        "src/billing/broken.py",
+        "def (:\n  import src.notifications\n",
+    );
     assert!(match_structural(&[unit], &struct_rule()).is_empty());
 }
 
@@ -213,10 +222,15 @@ match:
 
 #[test]
 fn llm_success_maps_verdict_to_violations() {
-    let verdict =
-        r#"{"violated": true, "locations": [{"file": "a.py", "line": 7, "reason": "logs an email"}]}"#;
+    let verdict = r#"{"violated": true, "locations": [{"file": "a.py", "line": 7, "reason": "logs an email"}]}"#;
     let fake = FakeClaude::ok(verdict);
-    let v = match_llm(&[CodeUnit::new("a.py", "log(email)\n")], &llm_rule(), true, "m", &fake);
+    let v = match_llm(
+        &[CodeUnit::new("a.py", "log(email)\n")],
+        &llm_rule(),
+        true,
+        "m",
+        &fake,
+    );
     assert_eq!(v.len(), 1);
     assert_eq!(v[0].location.file, "a.py");
     assert_eq!(v[0].location.line, 7);
@@ -230,7 +244,16 @@ fn llm_success_maps_verdict_to_violations() {
 #[test]
 fn llm_not_violated_returns_empty() {
     let fake = FakeClaude::ok(r#"{"violated": false, "locations": []}"#);
-    assert!(match_llm(&[CodeUnit::new("a.py", "x = 1\n")], &llm_rule(), true, "m", &fake).is_empty());
+    assert!(
+        match_llm(
+            &[CodeUnit::new("a.py", "x = 1\n")],
+            &llm_rule(),
+            true,
+            "m",
+            &fake
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -242,7 +265,16 @@ fn llm_disabled_skips_without_calling() {
         panic_on_run: true,
         captured: RefCell::new(None),
     };
-    assert!(match_llm(&[CodeUnit::new("a.py", "x")], &llm_rule(), false, "m", &fake).is_empty());
+    assert!(
+        match_llm(
+            &[CodeUnit::new("a.py", "x")],
+            &llm_rule(),
+            false,
+            "m",
+            &fake
+        )
+        .is_empty()
+    );
 }
 
 #[test]
@@ -326,6 +358,9 @@ match:
         .collect();
     assert_eq!(
         got,
-        HashSet::from(["src/billing/c.py".to_string(), "./src/billing/d.py".to_string()])
+        HashSet::from([
+            "src/billing/c.py".to_string(),
+            "./src/billing/d.py".to_string()
+        ])
     );
 }

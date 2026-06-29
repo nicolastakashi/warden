@@ -82,10 +82,10 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
                         }
                     }
                     "aliased_import" => {
-                        if let Some(name) = child.child_by_field_name("name") {
-                            if let Some(t) = text(name, src) {
-                                out.push((dots_to_slash(&t), line));
-                            }
+                        if let Some(name) = child.child_by_field_name("name")
+                            && let Some(t) = text(name, src)
+                        {
+                            out.push((dots_to_slash(&t), line));
                         }
                     }
                     _ => {}
@@ -97,30 +97,29 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
             let line = node.start_position().row + 1;
             let module = node.child_by_field_name("module_name");
             // Relative imports (`from . import x`) are out of scope — skip.
-            if let Some(m) = module {
-                if m.kind() != "relative_import" {
-                    if let Some(base) = text(m, src).map(|t| dots_to_slash(&t)) {
-                        out.push((base.clone(), line));
-                        // imported names: `from base import a, b as c`
-                        let mut cursor = node.walk();
-                        for child in node.children_by_field_name("name", &mut cursor) {
-                            let name = match child.kind() {
-                                "dotted_name" => text(child, src),
-                                "aliased_import" => child
-                                    .child_by_field_name("name")
-                                    .and_then(|n| text(n, src)),
-                                _ => None,
-                            };
-                            if let Some(name) = name {
-                                out.push((format!("{base}/{}", dots_to_slash(&name)), line));
-                            }
+            if let Some(m) = module
+                && m.kind() != "relative_import"
+                && let Some(base) = text(m, src).map(|t| dots_to_slash(&t))
+            {
+                out.push((base.clone(), line));
+                // imported names: `from base import a, b as c`
+                let mut cursor = node.walk();
+                for child in node.children_by_field_name("name", &mut cursor) {
+                    let name = match child.kind() {
+                        "dotted_name" => text(child, src),
+                        "aliased_import" => {
+                            child.child_by_field_name("name").and_then(|n| text(n, src))
                         }
-                        // `from base import *`
-                        for child in named_children(node) {
-                            if child.kind() == "wildcard_import" {
-                                out.push((format!("{base}/*"), line));
-                            }
-                        }
+                        _ => None,
+                    };
+                    if let Some(name) = name {
+                        out.push((format!("{base}/{}", dots_to_slash(&name)), line));
+                    }
+                }
+                // `from base import *`
+                for child in named_children(node) {
+                    if child.kind() == "wildcard_import" {
+                        out.push((format!("{base}/*"), line));
                     }
                 }
             }
@@ -136,11 +135,11 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
 fn walk_go(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
     if node.kind() == "import_spec" {
         let line = node.start_position().row + 1;
-        if let Some(path) = node.child_by_field_name("path") {
-            if let Some(t) = text(path, src) {
-                let trimmed = t.trim_matches('"').trim_matches('`');
-                out.push((trimmed.to_string(), line));
-            }
+        if let Some(path) = node.child_by_field_name("path")
+            && let Some(t) = text(path, src)
+        {
+            let trimmed = t.trim_matches('"').trim_matches('`');
+            out.push((trimmed.to_string(), line));
         }
         return;
     }

@@ -46,11 +46,7 @@ pub fn units_for_rule(units: &[CodeUnit], rule: &Rule) -> Vec<CodeUnit> {
     }
     units
         .iter()
-        .filter(|u| {
-            rule.paths
-                .iter()
-                .any(|g| fnmatch(norm_path(&u.path), g))
-        })
+        .filter(|u| rule.paths.iter().any(|g| fnmatch(norm_path(&u.path), g)))
         .cloned()
         .collect()
 }

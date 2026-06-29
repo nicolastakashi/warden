@@ -4,7 +4,7 @@
 //! reads only `enforcement` (block/warn), ignores weight/score, returns
 //! block/allow. The core only sees `ProposedAction` and returns `GateDecision`.
 
-use crate::matchers::{run_matcher, units_for_rule, CodeUnit, RealClaude};
+use crate::matchers::{CodeUnit, RealClaude, run_matcher, units_for_rule};
 use crate::schema::Rule;
 
 #[derive(Debug, Clone)]
@@ -38,7 +38,10 @@ impl GateDecision {
 
 fn unit_for(action: &ProposedAction) -> Option<CodeUnit> {
     if let Some(content) = &action.content {
-        let path = action.path.clone().unwrap_or_else(|| "<action>".to_string());
+        let path = action
+            .path
+            .clone()
+            .unwrap_or_else(|| "<action>".to_string());
         return Some(CodeUnit {
             path,
             content: content.clone(),

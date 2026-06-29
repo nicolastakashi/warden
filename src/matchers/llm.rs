@@ -97,7 +97,11 @@ fn render_code(units: &[CodeUnit]) -> String {
             .enumerate()
             .map(|(i, ln)| format!("{:>4} | {ln}", i + 1))
             .collect();
-        chunks.push(format!("=== FILE: {} ===\n{}", unit.path, numbered.join("\n")));
+        chunks.push(format!(
+            "=== FILE: {} ===\n{}",
+            unit.path,
+            numbered.join("\n")
+        ));
     }
     chunks.join("\n\n")
 }
@@ -143,7 +147,10 @@ fn run_claude(runner: &dyn ClaudeRunner, prompt: &str, model: &str) -> Result<St
     if !envelope.is_object() {
         return Err("claude output was not a JSON object".to_string());
     }
-    if envelope.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false)
+    if envelope
+        .get("is_error")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
         || envelope.get("type").and_then(|v| v.as_str()) != Some("result")
     {
         return Err("claude reported an error".to_string());
@@ -203,7 +210,10 @@ pub fn match_llm(
         }
     };
     if !verdict.is_object()
-        || !verdict.get("violated").and_then(|v| v.as_bool()).unwrap_or(false)
+        || !verdict
+            .get("violated")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
     {
         return Vec::new();
     }
@@ -222,10 +232,7 @@ pub fn match_llm(
                 Some(n) if n >= 0 => n as usize,
                 _ => continue,
             };
-            let reason = loc
-                .get("reason")
-                .map(json_to_string)
-                .unwrap_or_default();
+            let reason = loc.get("reason").map(json_to_string).unwrap_or_default();
             violations.push(Violation {
                 rule_id: rule.id.clone(),
                 location: Location { file, line },

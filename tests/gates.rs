@@ -6,8 +6,8 @@ use warden::adapters::claude_code::{format_claude_response, parse_claude_payload
 use warden::ci_gate::run_check;
 use warden::load::load_rules;
 use warden::report::json_out::to_decision_record;
-use warden::runtime_gate::{evaluate_action, GateDecision, ProposedAction, Reason};
-use warden::schema::{build_rule, Rule};
+use warden::runtime_gate::{GateDecision, ProposedAction, Reason, evaluate_action};
+use warden::schema::{Rule, build_rule};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -87,7 +87,10 @@ fn runtime_scans_bash_command() {
 fn runtime_ignores_ci_only_rules() {
     // no-cross-module-coupling is ci-only; a billing import must not block at runtime
     let d = evaluate_action(
-        &write_action("src/billing/charge.py", "from src.notifications import email"),
+        &write_action(
+            "src/billing/charge.py",
+            "from src.notifications import email",
+        ),
         &rules(),
         true,
     );
@@ -127,8 +130,8 @@ fn parse_edit_uses_new_string() {
 
 #[test]
 fn parse_bash_command() {
-    let a = parse_claude_payload(r#"{"tool_name": "Bash", "tool_input": {"command": "ls"}}"#)
-        .unwrap();
+    let a =
+        parse_claude_payload(r#"{"tool_name": "Bash", "tool_input": {"command": "ls"}}"#).unwrap();
     assert_eq!(a.command.as_deref(), Some("ls"));
 }
 
@@ -147,10 +150,12 @@ fn format_block_is_deny_json_exit_0() {
     let hso = &out["hookSpecificOutput"];
     assert_eq!(hso["hookEventName"], "PreToolUse");
     assert_eq!(hso["permissionDecision"], "deny");
-    assert!(hso["permissionDecisionReason"]
-        .as_str()
-        .unwrap()
-        .contains("no-env-vars"));
+    assert!(
+        hso["permissionDecisionReason"]
+            .as_str()
+            .unwrap()
+            .contains("no-env-vars")
+    );
 }
 
 #[test]
@@ -215,8 +220,7 @@ fn check_path_scoped_rule_only_fires_in_scope() {
 
 #[test]
 fn full_gate_roundtrip_block() {
-    let payload =
-        r#"{"tool_name": "Write", "tool_input": {"file_path": "x.py", "content": "v = os.getenv('A')"}}"#;
+    let payload = r#"{"tool_name": "Write", "tool_input": {"file_path": "x.py", "content": "v = os.getenv('A')"}}"#;
     let action = parse_claude_payload(payload).unwrap();
     let decision = evaluate_action(&action, &rules(), true);
     let (text, code) = format_claude_response(&decision);

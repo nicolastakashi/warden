@@ -1,6 +1,6 @@
 //! Ported from tests/test_schema.py — closed-schema validation.
 
-use warden::schema::{build_rule, Match, Rule, RuleError};
+use warden::schema::{Match, Rule, RuleError, build_rule};
 
 fn build(yaml: &str) -> Result<Rule, RuleError> {
     let value: serde_norway::Value = serde_norway::from_str(yaml).expect("test YAML parses");

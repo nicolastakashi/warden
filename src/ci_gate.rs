@@ -9,15 +9,15 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::glob::fnmatch;
-use crate::matchers::{run_matcher, units_for_rule, CodeUnit, RealClaude};
+use crate::matchers::{CodeUnit, RealClaude, run_matcher, units_for_rule};
 use crate::results::{CheckResult, RuleResult};
 use crate::schema::Rule;
 use crate::score::{band, compute_score};
 
 // Extensions treated as scannable text. Structural still self-filters by lang.
 const TEXT_SUFFIXES: [&str; 16] = [
-    ".py", ".pyi", ".txt", ".md", ".cfg", ".ini", ".toml", ".yaml", ".yml", ".json", ".env",
-    ".sh", ".js", ".ts", ".go", ".rs",
+    ".py", ".pyi", ".txt", ".md", ".cfg", ".ini", ".toml", ".yaml", ".yml", ".json", ".env", ".sh",
+    ".js", ".ts", ".go", ".rs",
 ];
 
 // Directories never worth scanning — VCS metadata, build output, vendored deps.
@@ -54,9 +54,7 @@ fn walk_files(dir: &Path, out: &mut Vec<PathBuf>) {
 /// The literal directory prefix of a glob, before the first wildcard — the place
 /// to start walking. `src/**/*.rs` -> `src`; `*.rs` -> `.`.
 fn glob_base(pattern: &str) -> PathBuf {
-    let first_wild = pattern
-        .find(|c| matches!(c, '*' | '?' | '['))
-        .unwrap_or(pattern.len());
+    let first_wild = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
     match pattern[..first_wild].rfind('/') {
         Some(i) => PathBuf::from(&pattern[..i]),
         None => PathBuf::from("."),
@@ -133,8 +131,10 @@ pub fn run_check(target: &str, rules: &[Rule], no_llm: bool) -> CheckResult {
     for rule in ci_rules {
         let scoped = units_for_rule(&units, rule); // honour optional paths
         let violations = run_matcher(&scoped, rule, no_llm, &runner);
-        let fired_files: HashSet<&str> =
-            violations.iter().map(|v| v.location.file.as_str()).collect();
+        let fired_files: HashSet<&str> = violations
+            .iter()
+            .map(|v| v.location.file.as_str())
+            .collect();
         let extent = if scoped.is_empty() {
             0.0
         } else {

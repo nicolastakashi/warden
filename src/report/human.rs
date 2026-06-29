@@ -22,12 +22,18 @@ pub fn render_human(check: &CheckResult) -> String {
     ));
 
     let fired: Vec<&RuleResult> = check.results.iter().filter(|r| !r.passed()).collect();
-    let blocking: Vec<&&RuleResult> =
-        fired.iter().filter(|r| r.rule.enforcement == "block").collect();
-    let warnings: Vec<&&RuleResult> =
-        fired.iter().filter(|r| r.rule.enforcement == "warn").collect();
-    let audits: Vec<&&RuleResult> =
-        fired.iter().filter(|r| r.rule.enforcement == "audit").collect();
+    let blocking: Vec<&&RuleResult> = fired
+        .iter()
+        .filter(|r| r.rule.enforcement == "block")
+        .collect();
+    let warnings: Vec<&&RuleResult> = fired
+        .iter()
+        .filter(|r| r.rule.enforcement == "warn")
+        .collect();
+    let audits: Vec<&&RuleResult> = fired
+        .iter()
+        .filter(|r| r.rule.enforcement == "audit")
+        .collect();
 
     if !blocking.is_empty() {
         lines.push(String::new());

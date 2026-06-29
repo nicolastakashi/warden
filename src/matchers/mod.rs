@@ -5,8 +5,8 @@ pub mod llm;
 pub mod pattern;
 pub mod structural;
 
-pub use base::{units_for_rule, CodeUnit, Location, Violation};
-pub use llm::{match_llm, ClaudeRunner, RealClaude, DEFAULT_MODEL};
+pub use base::{CodeUnit, Location, Violation, units_for_rule};
+pub use llm::{ClaudeRunner, DEFAULT_MODEL, RealClaude, match_llm};
 pub use pattern::match_pattern;
 pub use structural::match_structural;
 

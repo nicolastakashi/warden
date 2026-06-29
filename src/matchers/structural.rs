@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 
-use super::base::{norm_path, CodeUnit, Location, Violation};
+use super::base::{CodeUnit, Location, Violation, norm_path};
 use crate::glob::fnmatch;
 use crate::lang::{import_candidates, lang_for_path};
 use crate::schema::{Match, Rule};
@@ -28,8 +28,10 @@ pub fn match_structural(units: &[CodeUnit], rule: &Rule) -> Vec<Violation> {
         };
 
         // Which forbidden edges apply to this file?
-        let edges: Vec<&crate::schema::ForbiddenImport> =
-            forbidden.iter().filter(|e| fnmatch(path, &e.from_)).collect();
+        let edges: Vec<&crate::schema::ForbiddenImport> = forbidden
+            .iter()
+            .filter(|e| fnmatch(path, &e.from_))
+            .collect();
         if edges.is_empty() {
             continue;
         }

@@ -84,7 +84,10 @@ fn is_kebab(s: &str) -> bool {
     }
     let segments: Vec<&str> = s.split('-').collect();
     segments.iter().all(|seg| {
-        !seg.is_empty() && seg.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        !seg.is_empty()
+            && seg
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
     })
 }
 
@@ -125,12 +128,9 @@ fn build_match(data: &Value, whence: &str) -> Result<(String, Match), RuleError>
         }
         "structural" => {
             let raw = require(data, "forbidden", &format!("{whence}.match"))?;
-            let seq = raw
-                .as_sequence()
-                .filter(|s| !s.is_empty())
-                .ok_or_else(|| {
-                    RuleError(format!("{whence}.match.forbidden must be a non-empty list"))
-                })?;
+            let seq = raw.as_sequence().filter(|s| !s.is_empty()).ok_or_else(|| {
+                RuleError(format!("{whence}.match.forbidden must be a non-empty list"))
+            })?;
             let mut edges = Vec::new();
             for (i, edge) in seq.iter().enumerate() {
                 let ew = format!("{whence}.match.forbidden[{i}]");
@@ -147,15 +147,21 @@ fn build_match(data: &Value, whence: &str) -> Result<(String, Match), RuleError>
                     _ => return Err(RuleError(format!("{ew} 'from'/'to' must be strings"))),
                 }
             }
-            Ok((mtype, Match::Structural(StructuralMatch { forbidden: edges })))
+            Ok((
+                mtype,
+                Match::Structural(StructuralMatch { forbidden: edges }),
+            ))
         }
         _ => {
             // llm
             let raw = require(data, "prompt", &format!("{whence}.match"))?;
             match raw.as_str() {
-                Some(p) if !p.trim().is_empty() => {
-                    Ok((mtype, Match::Llm(LlmMatch { prompt: p.to_string() })))
-                }
+                Some(p) if !p.trim().is_empty() => Ok((
+                    mtype,
+                    Match::Llm(LlmMatch {
+                        prompt: p.to_string(),
+                    }),
+                )),
                 _ => Err(RuleError(format!(
                     "{whence}.match.prompt must be a non-empty string"
                 ))),
@@ -174,9 +180,7 @@ pub fn build_rule(data: &Value, whence: &str) -> Result<Rule, RuleError> {
     let id = match id.as_str() {
         Some(s) if is_kebab(s) => s.to_string(),
         _ => {
-            return Err(RuleError(format!(
-                "{whence}: id must be unique kebab-case"
-            )));
+            return Err(RuleError(format!("{whence}: id must be unique kebab-case")));
         }
     };
 
