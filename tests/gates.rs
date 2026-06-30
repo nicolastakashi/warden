@@ -279,7 +279,10 @@ fn edit_is_evaluated_as_the_resulting_file_not_the_fragment() {
     let action = parse_claude_payload(&payload).unwrap();
     // content is the full resulting file, not just the indented fragment
     let content = action.content.as_deref().unwrap();
-    assert!(content.contains("def charge():"), "should be the whole file");
+    assert!(
+        content.contains("def charge():"),
+        "should be the whole file"
+    );
     assert!(content.contains("from src.notifications import email"));
 
     let decision = evaluate_action(&action, std::slice::from_ref(&struct_runtime_rule()), true);

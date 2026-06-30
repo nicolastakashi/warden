@@ -162,6 +162,38 @@ fn structural_is_multi_language_go() {
     assert!(match_structural(&[good], &struct_rule()).is_empty());
 }
 
+#[test]
+fn structural_glob_top_level_vs_nested_package() {
+    // The `to` glob matches the imported module as a slash path with NO leading
+    // slash, so `**/foo/**` (which needs a segment before `foo`) silently MISSES
+    // a top-level import of `foo` — a fail-open footgun. Lock the behavior.
+    fn forbid_to(to: &str) -> Rule {
+        rule_from(&format!(
+            "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nweight: 4\nmatch:\n  type: structural\n  forbidden:\n    - from: \"app/**\"\n      to: \"{to}\"\n"
+        ))
+    }
+
+    // top-level: `from legacy.helpers import x` -> module path "legacy/helpers"
+    let top = CodeUnit::new("app/service.py", "from legacy.helpers import compute\n");
+    assert_eq!(
+        match_structural(std::slice::from_ref(&top), &forbid_to("legacy/**")).len(),
+        1,
+        "legacy/** must match a top-level package import"
+    );
+    assert!(
+        match_structural(&[top], &forbid_to("**/legacy/**")).is_empty(),
+        "**/legacy/** must NOT match a top-level import (the footgun)"
+    );
+
+    // nested: `from app.legacy.helpers import x` -> "app/legacy/helpers"
+    let nested = CodeUnit::new("app/service.py", "from app.legacy.helpers import compute\n");
+    assert_eq!(
+        match_structural(&[nested], &forbid_to("**/legacy/**")).len(),
+        1,
+        "**/legacy/** matches a nested package import"
+    );
+}
+
 // --- llm (no live claude — fake the runner) ---------------------------------
 
 struct FakeClaude {

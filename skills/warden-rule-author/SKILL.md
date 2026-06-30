@@ -116,7 +116,7 @@ are Python regular expressions — escape literal dots (`os\.getenv`). The list 
 flat and OR-combined; there are no per-language maps. Best for literal or
 syntactic signals (a banned call, a forbidden token, a TODO marker).
 
-### structural — forbidden imports via the Python AST (Python targets only)
+### structural — forbidden imports via tree-sitter (multi-language)
 
 ```yaml
 match:
@@ -128,17 +128,27 @@ match:
 
 For architectural boundaries. `from` and `to` are **file-path globs** (matched
 with `fnmatch`, where `*` crosses `/`, so `src/notifications/**` matches
-`src/notifications/email`). A Python file whose path matches `from` may not
-import a module whose path matches `to`. Non-Python files are skipped; the POC
-supports only this forbidden-import kind. List multiple edges under `forbidden`.
+`src/notifications/email`). A file whose path matches `from` may not import a
+module whose path matches `to`. The language is inferred from the file extension
+(Python and Go today); files in unsupported languages, or that don't parse, are
+skipped. List multiple edges under `forbidden`.
 
 Globs are matched against the path **as the warden sees it** — relative to
 whatever you point `check` at. `services/payments/**` matches
 `services/payments/charge.py` only when the path starts there. If you can't rely
 on where `check` runs (or want it to match at any depth), lead with `**/`, e.g.
-`**/payments/**` → `**/analytics/**`. The `to` glob matches the **imported
-module** as a slash path (`services.analytics.metrics` → `services/analytics/metrics`),
-so target a package and its contents with `**`, e.g. `**/analytics/**`.
+`**/payments/**`. The `to` glob matches the **imported module** as a slash path
+(`services.analytics.metrics` → `services/analytics/metrics`).
+
+**Footgun — `**/foo/**` does NOT match a top-level import of `foo`.** A leading
+`**/` requires a path segment *before* `foo`, so `**/analytics/**` matches a
+nested `app.analytics.x` (→ `app/analytics/x`) but **not** a top-level
+`analytics.x` (→ `analytics/x`, which has nothing before `analytics`). To forbid
+a package that can be imported at the top level, use `analytics/**`; to catch it
+both top-level and nested, give it two edges (`analytics/**` *and*
+`**/analytics/**`). This is easy to get wrong and fails *open* (silently no
+violation), so always dry-run `warden check` against a real offending import to
+confirm the rule actually fires.
 
 ### llm — semantic check delegated to Claude
 
