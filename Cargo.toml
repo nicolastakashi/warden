@@ -2,7 +2,6 @@
 name = "warden"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
 description = "A deterministic, agent-agnostic policy engine for AI-agent-generated code"
 repository = "https://github.com/nicolastakashi/warden"
 license = "Apache-2.0"
