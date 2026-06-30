@@ -228,3 +228,70 @@ fn full_gate_roundtrip_block() {
     let out: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "deny");
 }
+
+// --- Edit reconstruction: the gate judges the post-edit file, not the fragment -
+
+fn struct_runtime_rule() -> Rule {
+    let value: serde_norway::Value = serde_norway::from_str(
+        r#"
+id: no-cross-module-coupling
+description: "Billing must not import notifications"
+why: w
+scope: [runtime]
+enforcement: block
+weight: 4
+match:
+  type: structural
+  forbidden:
+    - from: "**/billing/**"
+      to: "**/notifications/**"
+"#,
+    )
+    .unwrap();
+    build_rule(&value, "t").unwrap()
+}
+
+#[test]
+fn edit_is_evaluated_as_the_resulting_file_not_the_fragment() {
+    // An Edit adds a forbidden import *inside a function* — the new_string is an
+    // indented fragment that does NOT parse standalone (tree-sitter sees an
+    // unexpected indent and bails), so a structural rule run against the raw
+    // fragment would silently skip it. The gate must reconstruct the full file
+    // from disk; only then does the import parse and the rule fire. (Run against
+    // the fragment alone this test asserts `block` but would get `allow`.)
+    let dir = std::env::temp_dir().join("warden_rs_test_edit");
+    let _ = std::fs::remove_dir_all(&dir);
+    let billing = dir.join("billing");
+    std::fs::create_dir_all(&billing).unwrap();
+    let file = billing.join("charge.py");
+    std::fs::write(&file, "def charge():\n    pass\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "    pass",
+            "new_string": "    from src.notifications import email\n    return email",
+        }
+    })
+    .to_string();
+
+    let action = parse_claude_payload(&payload).unwrap();
+    // content is the full resulting file, not just the indented fragment
+    let content = action.content.as_deref().unwrap();
+    assert!(content.contains("def charge():"), "should be the whole file");
+    assert!(content.contains("from src.notifications import email"));
+
+    let decision = evaluate_action(&action, std::slice::from_ref(&struct_runtime_rule()), true);
+    assert_eq!(decision.decision, "block");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_falls_back_to_fragment_when_file_missing() {
+    // No file on disk -> use the new_string fragment (previous behavior).
+    let payload = r#"{"tool_name": "Edit", "tool_input": {"file_path": "definitely/missing/x.py", "old_string": "o", "new_string": "n"}}"#;
+    let action = parse_claude_payload(payload).unwrap();
+    assert_eq!(action.content.as_deref(), Some("n"));
+}
