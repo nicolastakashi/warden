@@ -237,6 +237,8 @@ pub fn match_llm(
                 rule_id: rule.id.clone(),
                 location: Location { file, line },
                 reason,
+                // The model reports file/line but not the exact source text.
+                snippet: String::new(),
             });
         }
     }

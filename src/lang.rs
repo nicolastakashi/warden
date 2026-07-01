@@ -34,12 +34,24 @@ fn dots_to_slash(s: &str) -> String {
     s.replace('.', "/")
 }
 
-/// Parse `src` and return its imports as `(slash_path, line_1_based)`.
+/// One import found in a file.
+#[derive(Debug, Clone)]
+pub struct ImportRef {
+    /// The imported module as a slash path (`a.b.c` -> `a/b/c`).
+    pub path: String,
+    /// 1-based line of the import statement (from tree-sitter).
+    pub line: usize,
+    /// The offending source line — the import statement's own text, straight
+    /// from the tree-sitter node, so it shares the node's line (single source).
+    pub snippet: String,
+}
+
+/// Parse `src` and return its imports.
 ///
 /// Returns `None` if the file does not parse cleanly (tree has errors) — the
 /// engine then skips it rather than enforcing structural rules on broken code,
 /// matching the original fail-open behavior.
-pub fn import_candidates(src: &str, lang: Lang) -> Option<Vec<(String, usize)>> {
+pub fn import_candidates(src: &str, lang: Lang) -> Option<Vec<ImportRef>> {
     let language = match lang {
         Lang::Python => tree_sitter_python::LANGUAGE,
         Lang::Go => tree_sitter_go::LANGUAGE,
@@ -53,7 +65,7 @@ pub fn import_candidates(src: &str, lang: Lang) -> Option<Vec<(String, usize)>> 
     }
 
     let bytes = src.as_bytes();
-    let mut out: Vec<(String, usize)> = Vec::new();
+    let mut out: Vec<ImportRef> = Vec::new();
     match lang {
         Lang::Python => walk_python(root, bytes, &mut out),
         Lang::Go => walk_go(root, bytes, &mut out),
@@ -70,22 +82,42 @@ fn text(node: Node, src: &[u8]) -> Option<String> {
     node.utf8_text(src).ok().map(|s| s.to_string())
 }
 
-fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
+/// The node's first source line, trimmed — a display-ready snippet from
+/// tree-sitter itself (no re-slicing the file by a possibly-divergent index).
+fn line_snippet(node: Node, src: &[u8]) -> String {
+    node.utf8_text(src)
+        .ok()
+        .and_then(|t| t.lines().next())
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
+fn walk_python(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
     match node.kind() {
         "import_statement" => {
             let line = node.start_position().row + 1;
+            let snippet = line_snippet(node, src);
             for child in named_children(node) {
                 match child.kind() {
                     "dotted_name" => {
                         if let Some(t) = text(child, src) {
-                            out.push((dots_to_slash(&t), line));
+                            out.push(ImportRef {
+                                path: dots_to_slash(&t),
+                                line,
+                                snippet: snippet.clone(),
+                            });
                         }
                     }
                     "aliased_import" => {
                         if let Some(name) = child.child_by_field_name("name")
                             && let Some(t) = text(name, src)
                         {
-                            out.push((dots_to_slash(&t), line));
+                            out.push(ImportRef {
+                                path: dots_to_slash(&t),
+                                line,
+                                snippet: snippet.clone(),
+                            });
                         }
                     }
                     _ => {}
@@ -95,13 +127,18 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
         }
         "import_from_statement" => {
             let line = node.start_position().row + 1;
+            let snippet = line_snippet(node, src);
             let module = node.child_by_field_name("module_name");
             // Relative imports (`from . import x`) are out of scope — skip.
             if let Some(m) = module
                 && m.kind() != "relative_import"
                 && let Some(base) = text(m, src).map(|t| dots_to_slash(&t))
             {
-                out.push((base.clone(), line));
+                out.push(ImportRef {
+                    path: base.clone(),
+                    line,
+                    snippet: snippet.clone(),
+                });
                 // imported names: `from base import a, b as c`
                 let mut cursor = node.walk();
                 for child in node.children_by_field_name("name", &mut cursor) {
@@ -113,13 +150,21 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
                         _ => None,
                     };
                     if let Some(name) = name {
-                        out.push((format!("{base}/{}", dots_to_slash(&name)), line));
+                        out.push(ImportRef {
+                            path: format!("{base}/{}", dots_to_slash(&name)),
+                            line,
+                            snippet: snippet.clone(),
+                        });
                     }
                 }
                 // `from base import *`
                 for child in named_children(node) {
                     if child.kind() == "wildcard_import" {
-                        out.push((format!("{base}/*"), line));
+                        out.push(ImportRef {
+                            path: format!("{base}/*"),
+                            line,
+                            snippet: snippet.clone(),
+                        });
                     }
                 }
             }
@@ -132,14 +177,18 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
     }
 }
 
-fn walk_go(node: Node, src: &[u8], out: &mut Vec<(String, usize)>) {
+fn walk_go(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
     if node.kind() == "import_spec" {
         let line = node.start_position().row + 1;
         if let Some(path) = node.child_by_field_name("path")
             && let Some(t) = text(path, src)
         {
             let trimmed = t.trim_matches('"').trim_matches('`');
-            out.push((trimmed.to_string(), line));
+            out.push(ImportRef {
+                path: trimmed.to_string(),
+                line,
+                snippet: line_snippet(node, src),
+            });
         }
         return;
     }

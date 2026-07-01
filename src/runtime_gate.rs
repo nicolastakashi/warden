@@ -4,7 +4,7 @@
 //! reads only `enforcement` (block/warn), ignores weight/score, returns
 //! block/allow. The core only sees `ProposedAction` and returns `GateDecision`.
 
-use crate::matchers::{CodeUnit, Location, RealClaude, run_matcher, units_for_rule};
+use crate::matchers::{CodeUnit, RealClaude, run_matcher, units_for_rule};
 use crate::schema::Rule;
 
 #[derive(Debug, Clone)]
@@ -69,18 +69,6 @@ fn unit_for(action: &ProposedAction) -> Option<CodeUnit> {
     None
 }
 
-/// The offending source line for a violation, trimmed — used to make the deny
-/// message actionable. Empty if the line can't be resolved.
-fn snippet_at(units: &[CodeUnit], loc: &Location) -> String {
-    units
-        .iter()
-        .find(|u| u.path == loc.file)
-        .and_then(|u| u.content.lines().nth(loc.line.saturating_sub(1)))
-        .unwrap_or("")
-        .trim()
-        .to_string()
-}
-
 pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) -> GateDecision {
     let unit = match unit_for(action) {
         Some(u) => u,
@@ -112,7 +100,7 @@ pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) ->
             .map(|v| ReasonLocation {
                 file: v.location.file.clone(),
                 line: v.location.line,
-                snippet: snippet_at(&units, &v.location),
+                snippet: v.snippet.clone(),
             })
             .collect();
         reasons.push(Reason {

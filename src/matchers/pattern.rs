@@ -30,6 +30,7 @@ pub fn match_pattern(units: &[CodeUnit], rule: &Rule) -> Vec<Violation> {
                             line: lineno,
                         },
                         reason: format!("matched /{}/", re.as_str()),
+                        snippet: line.trim().to_string(),
                     });
                     break; // one violation per line is enough
                 }
