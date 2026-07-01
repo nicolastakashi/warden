@@ -179,6 +179,12 @@ The win over `pattern`: it matches the real syntax, so it fires on the method
 call `.unwrap()` but **not** on `.unwrap_or(...)` or the substring `"unwrap"` in
 a string or identifier — precision a regex can't give.
 
+**Capture only the offending node.** *Every* captured node becomes one
+violation, so a query with an auxiliary capture (e.g. `(#eq? @a @b)` captures
+both `@a` and `@b`) reports the same problem twice. Capture just the node you
+want flagged; use string-literal predicates (`(#eq? @m "unwrap")`) rather than
+capturing a second node when you only need to compare against a constant.
+
 **The honest limit — a query rule is single-language.** Unlike `structural`
 (where one `to:` glob spans languages because imports normalize to slash-paths),
 tree-sitter queries reference **grammar-specific node kinds** (`call_expression`

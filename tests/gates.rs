@@ -449,3 +449,80 @@ fn edit_empty_old_string_does_not_fabricate_content() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- query match type through the gate --------------------------------------
+
+fn no_unwrap_runtime_rule() -> Rule {
+    let value: serde_norway::Value = serde_norway::from_str(
+        r#"
+id: no-unwrap-in-src
+description: "No .unwrap() in production Rust"
+why: w
+scope: [runtime]
+enforcement: block
+weight: 2
+paths: ["**/src/**"]
+match:
+  type: query
+  language: rust
+  query: |
+    (call_expression
+      function: (field_expression
+        field: (field_identifier) @method)
+      (#eq? @method "unwrap"))
+"#,
+    )
+    .unwrap();
+    build_rule(&value, "t").unwrap()
+}
+
+#[test]
+fn edit_query_rule_blocks_on_reconstructed_rust_file() {
+    // An Edit adds `x.unwrap()` inside a Rust fn. The new_string fragment does
+    // NOT parse standalone (a bare expression statement is not a valid Rust
+    // source_file — tree-sitter marks it as an error), so a query rule run
+    // against the raw fragment silently skips it. The gate must reconstruct the
+    // full file from disk; only then does it parse and the query fire. This
+    // locks the reconstruction path for `query`, mirroring the structural case.
+    let dir = std::env::temp_dir().join("warden_rs_test_edit_query");
+    let _ = std::fs::remove_dir_all(&dir);
+    let src = dir.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    let file = src.join("thing.rs");
+    std::fs::write(&file, "fn f(x: Option<i32>) -> i32 {\n    0\n}\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "    0",
+            "new_string": "    x.unwrap()",
+        }
+    })
+    .to_string();
+    let action = parse_claude_payload(&payload).unwrap();
+    let content = action.content.as_deref().unwrap();
+    assert!(
+        content.contains("fn f("),
+        "should be the whole reconstructed file"
+    );
+    assert!(content.contains("x.unwrap()"));
+
+    let rule = no_unwrap_runtime_rule();
+    let decision = evaluate_action(&action, std::slice::from_ref(&rule), true);
+    assert_eq!(
+        decision.decision, "block",
+        "the reconstructed .rs file must trip the query rule"
+    );
+
+    // Proof the reconstruction is load-bearing: the same fragment as standalone
+    // content does not parse, so it would be allowed (skipped).
+    let frag = write_action(&file.to_string_lossy(), "    x.unwrap()\n");
+    assert_eq!(
+        evaluate_action(&frag, std::slice::from_ref(&rule), true).decision,
+        "allow",
+        "the bare fragment does not parse, so it is skipped (fail-open)"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
