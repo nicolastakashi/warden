@@ -6,7 +6,7 @@ use warden::adapters::claude_code::{format_claude_response, parse_claude_payload
 use warden::ci_gate::run_check;
 use warden::load::load_rules;
 use warden::report::json_out::to_decision_record;
-use warden::runtime_gate::{GateDecision, ProposedAction, Reason, evaluate_action};
+use warden::runtime_gate::{GateDecision, ProposedAction, Reason, ReasonLocation, evaluate_action};
 use warden::schema::{Rule, build_rule};
 
 fn root() -> PathBuf {
@@ -141,7 +141,14 @@ fn format_block_is_deny_json_exit_0() {
         decision: "block".to_string(),
         reasons: vec![Reason {
             rule_id: "no-env-vars".to_string(),
-            message: "use flags".to_string(),
+            description: "use flags".to_string(),
+            why: "env drifts".to_string(),
+            enforcement: "block".to_string(),
+            locations: vec![ReasonLocation {
+                file: "x.py".to_string(),
+                line: 3,
+                snippet: "v = os.getenv('A')".to_string(),
+            }],
         }],
     };
     let (text, code) = format_claude_response(&d);
@@ -150,12 +157,11 @@ fn format_block_is_deny_json_exit_0() {
     let hso = &out["hookSpecificOutput"];
     assert_eq!(hso["hookEventName"], "PreToolUse");
     assert_eq!(hso["permissionDecision"], "deny");
-    assert!(
-        hso["permissionDecisionReason"]
-            .as_str()
-            .unwrap()
-            .contains("no-env-vars")
-    );
+    let reason = hso["permissionDecisionReason"].as_str().unwrap();
+    assert!(reason.contains("no-env-vars"));
+    assert!(reason.contains("x.py:3"));
+    assert!(reason.contains("v = os.getenv('A')"));
+    assert!(reason.contains("env drifts"));
 }
 
 #[test]
@@ -166,6 +172,29 @@ fn format_allow_is_empty_exit_0() {
     });
     assert!(text.is_empty());
     assert_eq!(code, 0);
+}
+
+#[test]
+fn deny_reason_is_actionable() {
+    // A real env-var Write through the gate + adapter yields a deny message that
+    // names the rule, points at file:line with the offending source line, and
+    // includes the rule's rationale — enough to fix it on the next try.
+    let action = write_action("service.py", "import os\n\nX = os.getenv('TOKEN')\n");
+    let decision = evaluate_action(&action, &rules(), true);
+    let (text, _) = format_claude_response(&decision);
+    let out: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+        .as_str()
+        .unwrap();
+
+    assert!(reason.contains("no-env-vars"), "names the rule");
+    assert!(reason.contains("service.py:3"), "points at file:line");
+    assert!(
+        reason.contains("os.getenv('TOKEN')"),
+        "shows the offending line"
+    );
+    assert!(reason.contains("feature flags"), "carries the description");
+    assert!(reason.contains("config drift"), "carries the why/rationale");
 }
 
 // --- paths scoping in both gates --------------------------------------------

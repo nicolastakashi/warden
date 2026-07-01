@@ -8,9 +8,11 @@
 //! what it accepts (e.g. both `content` and `file_text` for a Write) because
 //! hook payload shapes vary across Claude Code versions.
 
+use std::fmt::Write as _;
+
 use serde_json::Value;
 
-use crate::runtime_gate::{GateDecision, ProposedAction};
+use crate::runtime_gate::{GateDecision, ProposedAction, Reason};
 
 /// For an Edit, the matchers should see the file as it WILL exist after the
 /// edit — not the raw `new_string` fragment. A fragment usually doesn't parse,
@@ -105,26 +107,45 @@ pub fn parse_claude_payload(stdin_json: &str) -> Result<ProposedAction, String> 
 /// does NOT block in Claude Code; only the JSON path carries a reason. To allow,
 /// emit nothing (no opinion); the normal permission flow continues.
 pub fn format_claude_response(decision: &GateDecision) -> (String, i32) {
-    if decision.decision == "block" {
-        let reason = if decision.reasons.is_empty() {
-            "blocked by policy".to_string()
-        } else {
-            decision
-                .reasons
-                .iter()
-                .map(|r| format!("{}: {}", r.rule_id, r.message))
-                .collect::<Vec<_>>()
-                .join("; ")
-        };
-        let out = serde_json::json!({
-            "hookSpecificOutput": {
-                "hookEventName": "PreToolUse",
-                "permissionDecision": "deny",
-                "permissionDecisionReason": reason,
-            }
-        });
-        return (out.to_string(), 0);
+    if decision.decision != "block" {
+        // allow -> print nothing (NOT an approval, just "no opinion")
+        return (String::new(), 0);
     }
-    // allow -> print nothing (NOT an approval, just "no opinion")
-    (String::new(), 0)
+    let out = serde_json::json!({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": render_deny_reason(&decision.reasons),
+        }
+    });
+    (out.to_string(), 0)
+}
+
+/// Build the human-facing `permissionDecisionReason`: for each rule that fired,
+/// its id + description, the `file:line → offending line` hits, and the rule's
+/// `why` (the sanctioned alternative) — so the agent can fix it in one retry.
+fn render_deny_reason(reasons: &[Reason]) -> String {
+    if reasons.is_empty() {
+        return "blocked by policy".to_string();
+    }
+    let mut out = String::from("Blocked by warden:");
+    for r in reasons {
+        let tag = if r.enforcement == "warn" {
+            " (warn)"
+        } else {
+            ""
+        };
+        let _ = write!(out, "\n\n• {}{}: {}", r.rule_id, tag, r.description);
+        for loc in &r.locations {
+            if loc.snippet.is_empty() {
+                let _ = write!(out, "\n    {}:{}", loc.file, loc.line);
+            } else {
+                let _ = write!(out, "\n    {}:{} → {}", loc.file, loc.line, loc.snippet);
+            }
+        }
+        if !r.why.is_empty() {
+            let _ = write!(out, "\n    why: {}", r.why);
+        }
+    }
+    out
 }

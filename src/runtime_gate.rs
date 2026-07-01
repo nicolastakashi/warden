@@ -4,7 +4,7 @@
 //! reads only `enforcement` (block/warn), ignores weight/score, returns
 //! block/allow. The core only sees `ProposedAction` and returns `GateDecision`.
 
-use crate::matchers::{CodeUnit, RealClaude, run_matcher, units_for_rule};
+use crate::matchers::{CodeUnit, Location, RealClaude, run_matcher, units_for_rule};
 use crate::schema::Rule;
 
 #[derive(Debug, Clone)]
@@ -15,10 +15,23 @@ pub struct ProposedAction {
     pub command: Option<String>,
 }
 
+/// A rule that fired, with enough detail for the agent to fix it on the next
+/// try: where it fired (with the offending line) and *why* the rule exists.
 #[derive(Debug, Clone)]
 pub struct Reason {
     pub rule_id: String,
-    pub message: String,
+    pub description: String,
+    pub why: String,
+    pub enforcement: String, // "block" | "warn"
+    pub locations: Vec<ReasonLocation>,
+}
+
+/// One place a rule fired: `file:line` plus the offending source line.
+#[derive(Debug, Clone)]
+pub struct ReasonLocation {
+    pub file: String,
+    pub line: usize,
+    pub snippet: String,
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +69,18 @@ fn unit_for(action: &ProposedAction) -> Option<CodeUnit> {
     None
 }
 
+/// The offending source line for a violation, trimmed — used to make the deny
+/// message actionable. Empty if the line can't be resolved.
+fn snippet_at(units: &[CodeUnit], loc: &Location) -> String {
+    units
+        .iter()
+        .find(|u| u.path == loc.file)
+        .and_then(|u| u.content.lines().nth(loc.line.saturating_sub(1)))
+        .unwrap_or("")
+        .trim()
+        .to_string()
+}
+
 pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) -> GateDecision {
     let unit = match unit_for(action) {
         Some(u) => u,
@@ -68,6 +93,10 @@ pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) ->
     let mut reasons: Vec<Reason> = Vec::new();
 
     for rule in rules.iter().filter(|r| r.in_runtime()) {
+        // audit rules never affect a runtime decision — skip before any work.
+        if rule.enforcement == "audit" {
+            continue;
+        }
         let scoped = units_for_rule(&units, rule); // rule's paths must match
         if scoped.is_empty() {
             continue;
@@ -76,19 +105,23 @@ pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) ->
         if violations.is_empty() {
             continue;
         }
-        if rule.enforcement == "block" {
-            block = true;
-            reasons.push(Reason {
-                rule_id: rule.id.clone(),
-                message: rule.description.clone(),
-            });
-        } else if rule.enforcement == "warn" {
-            reasons.push(Reason {
-                rule_id: rule.id.clone(),
-                message: format!("(warn) {}", rule.description),
-            });
-        }
-        // audit rules never affect a runtime decision
+
+        block |= rule.enforcement == "block";
+        let locations = violations
+            .iter()
+            .map(|v| ReasonLocation {
+                file: v.location.file.clone(),
+                line: v.location.line,
+                snippet: snippet_at(&units, &v.location),
+            })
+            .collect();
+        reasons.push(Reason {
+            rule_id: rule.id.clone(),
+            description: rule.description.clone(),
+            why: rule.why.clone(),
+            enforcement: rule.enforcement.clone(),
+            locations,
+        });
     }
 
     GateDecision {

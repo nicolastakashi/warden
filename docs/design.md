@@ -138,6 +138,10 @@ The Claude Code surface is two translation functions in
 - `format_claude_response(decision) -> (stdout, exit_code)` — blocks via the
   JSON permission path (`permissionDecision: "deny"`) and **always exits 0**
   (exit 1 does not block in Claude Code; only the JSON path carries a reason).
+  The reason is **actionable**: per fired rule it lists the id + description, the
+  `file:line → offending line` hits, and the rule's `why` (the sanctioned
+  alternative), so the agent can fix it on the next try. The core supplies this
+  as structured `Reason`s (`runtime_gate.rs`); the adapter owns the wording.
 
 Wired via `.claude/settings.json` as a `PreToolUse` hook calling `warden gate`;
 `${CLAUDE_PROJECT_DIR}` lets it find the project's own `rules/`.
