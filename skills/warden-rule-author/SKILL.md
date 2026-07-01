@@ -9,7 +9,7 @@ description: >-
   without naming the rule file — e.g. "block direct env-var access", "warn when
   we log PII", "forbid billing from importing notifications", "flag TODOs in
   prod code". Also use when asked how the rule schema works (id, scope,
-  enforcement, weight, or the pattern / structural / llm match types). Always
+  enforcement, weight, or the pattern / structural / query / llm match types). Always
   finish by running `warden validate` so the rule is proven valid.
 compatibility: "Requires the warden CLI; llm-rule dry-runs also need the claude CLI."
 ---
@@ -38,7 +38,7 @@ enforcement: block               # block | warn | audit
 weight: 4                        # 1 | 2 | 4   (CI scorer only)
 
 match:                           # exactly one type
-  type: pattern                  # pattern | structural | llm
+  type: pattern                  # pattern | structural | query | llm
   # ...type-specific fields (see below)
 ```
 
@@ -97,11 +97,11 @@ files; in the runtime gate, a rule whose `paths` don't match the action's path
 simply doesn't apply. This is the one optional field — everything else is
 required, and the schema is otherwise closed.
 
-## The three match types — pick the simplest that captures the intent
+## The four match types — pick the simplest that captures the intent
 
-Reach for the cheapest layer that works: `pattern` and `structural` are
-deterministic, fast, and run offline; `llm` costs a Claude call. Use `llm` only
-when the rule genuinely needs judgment a regex or import graph can't express.
+Reach for the cheapest layer that works: `pattern`, `structural`, and `query`
+are deterministic, fast, and run offline; `llm` costs a Claude call. Use `llm`
+only when the rule genuinely needs judgment a regex or the AST can't express.
 
 ### pattern — regex over changed lines (language-agnostic)
 
@@ -157,6 +157,41 @@ forbid the `foo` package, give it all three edges (`foo`, `foo/**`,
 so always dry-run `warden check` against a real offending import to confirm the
 rule actually fires.
 
+### query — arbitrary structural check via a tree-sitter query (single language)
+
+When the rule is structural but *not* an import boundary — a banned call like
+`.unwrap()`, an `unsafe` block, a bare `except:` — use `query`. The rule *is* a
+tree-sitter query (`.scm`); every captured node is one violation. This is
+"rules-as-data": a new structural check needs **no engine code**, just a query.
+
+```yaml
+match:
+  type: query
+  language: rust                 # one of: python, go, rust
+  query: |
+    (call_expression
+      function: (field_expression
+        field: (field_identifier) @method)
+      (#eq? @method "unwrap"))
+```
+
+The win over `pattern`: it matches the real syntax, so it fires on the method
+call `.unwrap()` but **not** on `.unwrap_or(...)` or the substring `"unwrap"` in
+a string or identifier — precision a regex can't give.
+
+**The honest limit — a query rule is single-language.** Unlike `structural`
+(where one `to:` glob spans languages because imports normalize to slash-paths),
+tree-sitter queries reference **grammar-specific node kinds** (`call_expression`
+in Rust, `call` in Python), so a query is tied to exactly one `language:` and
+runs only on files of that language. Covering several languages means several
+rules — one per grammar. The `language` must be one warden supports (`python`,
+`go`, `rust`); the query is compiled at `warden validate` time, so a malformed
+`.scm` or a node kind that doesn't exist in that grammar fails when the rule
+loads, not silently at runtime. Text predicates (`#eq?`, `#match?`, `#any-of?`)
+are applied. As with `structural`, files that don't parse are skipped (fail-open)
+— always dry-run `warden check` against a real offending file to confirm it
+fires.
+
 ### llm — semantic check delegated to Claude
 
 ```yaml
@@ -176,8 +211,9 @@ single-criterion instruction; vague prompts produce noisy verdicts.
 ## Workflow
 
 1. **Translate the intent into the smallest match type.** Literal token or call
-   → `pattern`. Import/dependency boundary → `structural`. Needs judgment →
-   `llm`.
+   → `pattern`. Import/dependency boundary → `structural`. A structural check
+   that isn't an import (banned call, `unsafe`, syntax shape), single-language →
+   `query`. Needs judgment → `llm`.
 2. **Fill the metadata.** Pick a kebab-case `id`, an actionable `description`,
    and a `why` that states the real risk.
 3. **Set scope / enforcement / weight.** Hard stop → `block`; nudge that should

@@ -105,7 +105,7 @@ Present a prioritized table the maintainer can react to. For each candidate:
 |---|---|
 | intent | the convention in one line ("gate features with flags, not env checks") |
 | evidence | the doc that states it + grep extent ("AGENTS.md; 38 hits under features/") |
-| match type | pattern / structural / llm, with the concrete patterns or globs |
+| match type | pattern / structural / query / llm, with the concrete patterns, globs, or `.scm` |
 | enforcement / weight | with the conservative default and your reasoning |
 | paths | the scope, if narrower than the whole repo |
 | confidence | high / needs-confirmation — flag the ones you're guessing at |

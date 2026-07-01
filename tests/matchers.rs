@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use warden::matchers::base::{CodeUnit, units_for_rule};
 use warden::matchers::llm::{ClaudeRunner, MAX_CHARS, ProcOutput, match_llm};
 use warden::matchers::pattern::match_pattern;
+use warden::matchers::query::match_query;
 use warden::matchers::structural::match_structural;
 use warden::schema::{Rule, build_rule};
 
@@ -281,6 +282,92 @@ impl ClaudeRunner for FakeClaude {
             stderr: String::new(),
         })
     }
+}
+
+// --- query (rules-as-data via tree-sitter) ----------------------------------
+
+fn no_unwrap_rule() -> Rule {
+    rule_from(
+        r#"
+id: no-unwrap
+description: no unwrap
+why: w
+scope: [ci]
+enforcement: block
+weight: 2
+match:
+  type: query
+  language: rust
+  query: |
+    (call_expression
+      function: (field_expression
+        field: (field_identifier) @method)
+      (#eq? @method "unwrap"))
+"#,
+    )
+}
+
+#[test]
+fn query_fires_on_unwrap_but_not_lookalikes() {
+    // The payoff over regex: it matches the real method call `.unwrap()` and
+    // ignores `.unwrap_or(...)` and the substring "unwrap" in a string/ident.
+    let src = "fn a(x: Option<i32>) -> i32 {\n    x.unwrap()\n}\n\
+               fn b(x: Option<i32>) -> i32 {\n    x.unwrap_or(0)\n}\n\
+               fn c() {\n    let unwrap = \"unwrap\";\n    let _ = unwrap;\n}\n";
+    let v = match_query(&[CodeUnit::new("src/a.rs", src)], &no_unwrap_rule());
+    assert_eq!(v.len(), 1, "only the real .unwrap() call fires");
+    assert_eq!(v[0].location.line, 2);
+    assert_eq!(v[0].snippet, "x.unwrap()");
+}
+
+#[test]
+fn query_only_runs_on_its_declared_language() {
+    // A `language: rust` query must not run against a .py file, even if the
+    // path scope would include it.
+    let py = CodeUnit::new("src/a.py", "x = maybe.unwrap()\n");
+    assert!(
+        match_query(&[py], &no_unwrap_rule()).is_empty(),
+        "a rust query does not run on Python files"
+    );
+}
+
+#[test]
+fn query_clean_file_passes() {
+    let clean = CodeUnit::new(
+        "src/a.rs",
+        "fn a(x: Option<i32>) -> i32 {\n    x.unwrap_or(0)\n}\n",
+    );
+    assert!(match_query(&[clean], &no_unwrap_rule()).is_empty());
+}
+
+#[test]
+fn query_survives_syntax_error() {
+    // Unparseable file -> fail open (skipped), matching the structural matcher.
+    let broken = CodeUnit::new("src/a.rs", "fn a( { x.unwrap()\n");
+    assert!(match_query(&[broken], &no_unwrap_rule()).is_empty());
+}
+
+#[test]
+fn query_malformed_scm_fails_validation() {
+    // A bad query must fail when the rule loads, not silently at runtime.
+    let value: serde_norway::Value = serde_norway::from_str(
+        "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nweight: 2\n\
+         match:\n  type: query\n  language: rust\n  query: \"(this is not valid scm\"\n",
+    )
+    .expect("YAML parses");
+    let err = build_rule(&value, "t").expect_err("malformed query must be rejected");
+    assert!(err.0.contains("query is invalid"), "got: {}", err.0);
+}
+
+#[test]
+fn query_unknown_language_fails_validation() {
+    let value: serde_norway::Value = serde_norway::from_str(
+        "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nweight: 2\n\
+         match:\n  type: query\n  language: cobol\n  query: \"(identifier) @x\"\n",
+    )
+    .expect("YAML parses");
+    let err = build_rule(&value, "t").expect_err("unknown language must be rejected");
+    assert!(err.0.contains("unsupported"), "got: {}", err.0);
 }
 
 fn llm_rule() -> Rule {

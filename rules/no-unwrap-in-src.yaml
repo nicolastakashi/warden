@@ -1,0 +1,26 @@
+id: no-unwrap-in-src
+description: "Production Rust code must not call .unwrap()"
+why: "A bare .unwrap() panics on the error path, turning a recoverable condition into a crash — in a policy gate that is wired as a hook, a panic is a denial of service on the agent it guards. Errors should be propagated with ? or handled explicitly. This rule is expressed as a tree-sitter query, not a regex, so it matches the real method call .unwrap() and not the substring 'unwrap' inside .unwrap_or(...) or an identifier — proof that Warden's structural checks are not limited to imports."
+
+scope: [ci, runtime]
+enforcement: block
+weight: 2
+
+# Production code only. Tests legitimately use .unwrap() to assert.
+# Two edges: `src/**` matches when check runs at the repo root (top-level src/),
+# `**/src/**` when src/ sits deeper — the leading `**/` needs a segment before
+# `src`, so it alone would miss the top-level case (the documented glob footgun).
+paths:
+  - "src/**"
+  - "**/src/**"
+
+match:
+  type: query
+  language: rust
+  # Match `<expr>.unwrap()` — the field name of a method call, filtered to
+  # exactly "unwrap" (so .unwrap_or / .unwrap_err are untouched).
+  query: |
+    (call_expression
+      function: (field_expression
+        field: (field_identifier) @method)
+      (#eq? @method "unwrap"))

@@ -9,26 +9,55 @@
 //! Imports are returned as slash paths so one rule (`to: "**/notifications/**"`)
 //! works across languages: Python `a.b.c` -> `a/b/c`, Go `"a/b/c"` stays as is.
 
-use tree_sitter::{Node, Parser};
+use tree_sitter::{Node, Parser, Query, QueryCursor, StreamingIterator};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lang {
     Python,
     Go,
+    Rust,
+}
+
+/// The tree-sitter grammar for a language. Named here once so both the import
+/// walker and the query engine share the same source of truth.
+fn ts_language(lang: Lang) -> tree_sitter::Language {
+    let raw = match lang {
+        Lang::Python => tree_sitter_python::LANGUAGE,
+        Lang::Go => tree_sitter_go::LANGUAGE,
+        Lang::Rust => tree_sitter_rust::LANGUAGE,
+    };
+    raw.into()
 }
 
 /// Infer a language from a file path, or `None` for unsupported extensions
-/// (those files are skipped by the structural matcher).
+/// (those files are skipped by the structural and query matchers).
 pub fn lang_for_path(path: &str) -> Option<Lang> {
     let p = path.strip_prefix("./").unwrap_or(path);
     if p.ends_with(".py") {
         Some(Lang::Python)
     } else if p.ends_with(".go") {
         Some(Lang::Go)
+    } else if p.ends_with(".rs") {
+        Some(Lang::Rust)
     } else {
         None
     }
 }
+
+/// Resolve the `language:` field of a `query` rule to a `Lang`. This is the
+/// authoritative list of names a rule author may write.
+pub fn lang_by_name(name: &str) -> Option<Lang> {
+    match name {
+        "python" => Some(Lang::Python),
+        "go" => Some(Lang::Go),
+        "rust" => Some(Lang::Rust),
+        _ => None,
+    }
+}
+
+/// The set of language names accepted in a `query` rule's `language:` field,
+/// for validation error messages.
+pub const QUERY_LANGUAGES: [&str; 3] = ["python", "go", "rust"];
 
 fn dots_to_slash(s: &str) -> String {
     s.replace('.', "/")
@@ -53,12 +82,8 @@ pub struct ImportRef {
 /// engine then skips it rather than enforcing structural rules on broken code,
 /// matching the original fail-open behavior.
 pub fn import_candidates(src: &str, lang: Lang) -> Option<Vec<ImportRef>> {
-    let language = match lang {
-        Lang::Python => tree_sitter_python::LANGUAGE,
-        Lang::Go => tree_sitter_go::LANGUAGE,
-    };
     let mut parser = Parser::new();
-    parser.set_language(&language.into()).ok()?;
+    parser.set_language(&ts_language(lang)).ok()?;
     let tree = parser.parse(src, None)?;
     let root = tree.root_node();
     if root.has_error() {
@@ -69,7 +94,53 @@ pub fn import_candidates(src: &str, lang: Lang) -> Option<Vec<ImportRef>> {
     match lang {
         Lang::Python => walk_python(root, src, &mut out),
         Lang::Go => walk_go(root, src, &mut out),
+        // No import walker for Rust yet — structural import rules simply find
+        // nothing here. Rust is wired for the `query` matcher, which needs no
+        // per-language walker (see `run_query`).
+        Lang::Rust => {}
     }
+    Some(out)
+}
+
+/// Compile a tree-sitter query string against `lang`'s grammar. Used at
+/// validate time (so a malformed `.scm` fails when rules load, not silently at
+/// runtime) and by the query matcher. The error is the tree-sitter message.
+pub fn compile_query(lang: Lang, query: &str) -> Result<Query, String> {
+    Query::new(&ts_language(lang), query).map_err(|e| e.to_string())
+}
+
+/// Run a compiled query over `src` and return one hit per capture, located at
+/// the captured node (1-based line + trimmed source line, via `locate`).
+///
+/// Returns `None` if the file does not parse cleanly (tree has errors) — the
+/// query matcher then skips it, matching the structural matcher's fail-open
+/// behavior. Hits are deduped by line so one source line yields at most one
+/// violation, mirroring the structural matcher.
+pub fn run_query(src: &str, lang: Lang, query: &Query) -> Option<Vec<(usize, String)>> {
+    let mut parser = Parser::new();
+    parser.set_language(&ts_language(lang)).ok()?;
+    let tree = parser.parse(src, None)?;
+    let root = tree.root_node();
+    if root.has_error() {
+        return None;
+    }
+
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut cursor = QueryCursor::new();
+    // `matches` applies the query's text predicates (`#eq?`, `#match?`, …)
+    // automatically as it streams, so a query like `(#eq? @m "unwrap")` only
+    // yields matches whose captured text satisfies the predicate.
+    let mut it = cursor.matches(query, root, src.as_bytes());
+    while let Some(m) = it.next() {
+        for cap in m.captures {
+            let (line, snippet) = locate(cap.node, src);
+            if seen.insert(line) {
+                out.push((line, snippet));
+            }
+        }
+    }
+    out.sort_by_key(|(line, _)| *line);
     Some(out)
 }
 
