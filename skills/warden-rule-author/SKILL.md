@@ -140,15 +140,22 @@ on where `check` runs (or want it to match at any depth), lead with `**/`, e.g.
 `**/payments/**`. The `to` glob matches the **imported module** as a slash path
 (`services.analytics.metrics` → `services/analytics/metrics`).
 
-**Footgun — `**/foo/**` does NOT match a top-level import of `foo`.** A leading
-`**/` requires a path segment *before* `foo`, so `**/analytics/**` matches a
-nested `app.analytics.x` (→ `app/analytics/x`) but **not** a top-level
-`analytics.x` (→ `analytics/x`, which has nothing before `analytics`). To forbid
-a package that can be imported at the top level, use `analytics/**`; to catch it
-both top-level and nested, give it two edges (`analytics/**` *and*
-`**/analytics/**`). This is easy to get wrong and fails *open* (silently no
-violation), so always dry-run `warden check` against a real offending import to
-confirm the rule actually fires.
+**Footgun — matching a package takes several edges; the import is a slash-path
+with no leading slash.** For a package `foo`, the candidate paths differ by how
+it's imported, and each needs its own `to` glob:
+
+| import | candidate | glob that matches |
+|---|---|---|
+| `import foo` | `foo` | `to: "foo"` (exact) |
+| `from foo.bar import x` / `import foo.bar` | `foo/bar` | `to: "foo/**"` |
+| nested `app.foo.bar` | `app/foo/bar` | `to: "**/foo/**"` |
+
+So `**/foo/**` (a leading `**/` requires a segment *before* `foo`) matches the
+**nested** case only — **not** a top-level `import foo` or `from foo.x`. To fully
+forbid the `foo` package, give it all three edges (`foo`, `foo/**`,
+`**/foo/**`). This is easy to get wrong and fails *open* (silently no violation),
+so always dry-run `warden check` against a real offending import to confirm the
+rule actually fires.
 
 ### llm — semantic check delegated to Claude
 

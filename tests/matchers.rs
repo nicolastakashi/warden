@@ -192,6 +192,19 @@ fn structural_glob_top_level_vs_nested_package() {
         1,
         "**/legacy/** matches a nested package import"
     );
+
+    // bare: `import legacy` -> candidate "legacy". Only an exact `to: "legacy"`
+    // catches it; neither `legacy/**` nor `**/legacy/**` matches a bare name.
+    let bare = CodeUnit::new("app/service.py", "import legacy\n");
+    assert_eq!(
+        match_structural(std::slice::from_ref(&bare), &forbid_to("legacy")).len(),
+        1,
+        "an exact `to: legacy` catches a bare `import legacy`"
+    );
+    assert!(
+        match_structural(&[bare], &forbid_to("legacy/**")).is_empty(),
+        "legacy/** does NOT catch a bare `import legacy`"
+    );
 }
 
 // --- llm (no live claude — fake the runner) ---------------------------------

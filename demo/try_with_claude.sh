@@ -21,7 +21,8 @@ DEMO="$WARDEN_ROOT/demo"
 # Make the `warden` binary resolvable on PATH (the demo's settings.json calls it
 # by name). Build the release binary so the hook runs the current code.
 if command -v cargo >/dev/null 2>&1; then
-  (cd "$WARDEN_ROOT" && cargo build --release --quiet)
+  (cd "$WARDEN_ROOT" && cargo build --release --quiet) \
+    || { echo "cargo build failed — aborting so the demo can't run a stale binary" >&2; exit 1; }
 fi
 [ -d "$WARDEN_ROOT/target/release" ] && PATH="$WARDEN_ROOT/target/release:$PATH"
 if ! command -v warden >/dev/null 2>&1 || ! command -v claude >/dev/null 2>&1; then
@@ -50,10 +51,13 @@ weight: 4
 match:
   type: structural
   forbidden:
-    # legacy/** catches a top-level `import legacy...`; **/legacy/** catches a
-    # nested one (e.g. app.legacy). `**/legacy/**` alone would NOT match a
-    # top-level `legacy.helpers` import — it requires a path segment before
-    # `legacy` — so both edges are needed.
+    # Forbid the `legacy` package however it is imported. The import is matched
+    # as a slash-path with no leading slash, so it takes three edges:
+    #   `import legacy`          -> "legacy"       (to: "legacy")
+    #   `from legacy.x import y` -> "legacy/x"     (to: "legacy/**")
+    #   nested `app.legacy.x`    -> "app/legacy/x" (to: "**/legacy/**")
+    - from: "**/app/**"
+      to: "legacy"
     - from: "**/app/**"
       to: "legacy/**"
     - from: "**/app/**"
@@ -83,7 +87,7 @@ printf 'def handle():\n    return 1\n' > "$WORK/app/service.py"
 claude -p \
   "Edit app/service.py: inside handle(), import compute from the legacy.helpers module ('from legacy.helpers import compute') and return compute() instead of 1." \
   --allowedTools "Edit" --max-turns 3 --output-format text 2>&1 || true
-if grep -q "legacy" "$WORK/app/service.py" 2>/dev/null; then
+if grep -Eq '^[[:space:]]*(from|import)[[:space:]]+legacy' "$WORK/app/service.py" 2>/dev/null; then
   echo "❌ legacy import landed in app/service.py — the gate did NOT block the Edit:"
   cat "$WORK/app/service.py"
   fail=1

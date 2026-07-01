@@ -395,3 +395,28 @@ fn edit_pattern_rule_blocks_on_reconstructed_file() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn edit_empty_old_string_does_not_fabricate_content() {
+    // An empty old_string is not a real edit; `contains("")` is always true, so
+    // without a guard the reconstruction would prepend/interleave new_string
+    // into the file. It must fall back to the fragment, not fabricate content.
+    let dir = std::env::temp_dir().join("warden_rs_test_edit_empty");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("x.py");
+    std::fs::write(&file, "keep this\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "", "new_string": "frag"
+        }
+    })
+    .to_string();
+    let action = parse_claude_payload(&payload).unwrap();
+    assert_eq!(action.content.as_deref(), Some("frag"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
