@@ -67,9 +67,12 @@ environments. The engine does not, and cannot, supply intent.
    debt. This raises real value more than anything else.
 2. **Lean into the runtime gate** — it's the use case where the engine's
    guarantees and the user's value line up. More adapters, sharper rules.
-3. **The `query` match-type (`.scm` rules-as-data).** The bigger expressiveness
-   unlock (Phase 3 in `tree-sitter.md`), but lower priority than (1) — precision
-   of *what* you match matters less than *whether you're scoped to new code*.
+3. ~~The `query` match-type (`.scm` rules-as-data).~~ **Done** — `match.type:
+   query` embeds a tree-sitter query in a rule (Python/Go/Rust), so structural
+   checks generalize beyond imports with no engine code (e.g.
+   `rules/no-unwrap-in-src.yaml`). It confirms Warden isn't import-only. Precision
+   of *what* you match still matters less than *whether you're scoped to new
+   code*, so (1) remains the top priority.
 
 ## Repo state at handoff
 

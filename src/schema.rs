@@ -7,10 +7,12 @@
 
 use serde_norway::Value;
 
+use crate::lang::{QUERY_LANGUAGES, compile_query, lang_by_name};
+
 pub const SCOPES: [&str; 2] = ["ci", "runtime"];
 pub const ENFORCEMENTS: [&str; 3] = ["block", "warn", "audit"];
 pub const WEIGHTS: [i64; 3] = [1, 2, 4];
-pub const MATCH_TYPES: [&str; 3] = ["pattern", "structural", "llm"];
+pub const MATCH_TYPES: [&str; 4] = ["pattern", "structural", "llm", "query"];
 
 /// Raised when a rule file fails validation.
 #[derive(Debug, Clone)]
@@ -47,10 +49,22 @@ pub struct LlmMatch {
 }
 
 #[derive(Debug, Clone)]
+pub struct QueryMatch {
+    /// The one language this query's node kinds belong to. Tree-sitter queries
+    /// are grammar-specific, so a query rule targets exactly one language;
+    /// covering several means several rules (see `docs/tree-sitter.md`).
+    pub language: String,
+    /// The tree-sitter query (S-expression `.scm`). Every captured node is a
+    /// violation. Validated (compiled) when the rule loads.
+    pub query: String,
+}
+
+#[derive(Debug, Clone)]
 pub enum Match {
     Pattern(PatternMatch),
     Structural(StructuralMatch),
     Llm(LlmMatch),
+    Query(QueryMatch),
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +165,33 @@ fn build_match(data: &Value, whence: &str) -> Result<(String, Match), RuleError>
                 mtype,
                 Match::Structural(StructuralMatch { forbidden: edges }),
             ))
+        }
+        "query" => {
+            let language = require(data, "language", &format!("{whence}.match"))?
+                .as_str()
+                .ok_or_else(|| {
+                    RuleError(format!(
+                        "{whence}.match.language must be one of {QUERY_LANGUAGES:?}"
+                    ))
+                })?
+                .to_string();
+            let lang = lang_by_name(&language).ok_or_else(|| {
+                RuleError(format!(
+                    "{whence}.match.language '{language}' unsupported; one of {QUERY_LANGUAGES:?}"
+                ))
+            })?;
+            let query = require(data, "query", &format!("{whence}.match"))?
+                .as_str()
+                .filter(|q| !q.trim().is_empty())
+                .ok_or_else(|| {
+                    RuleError(format!("{whence}.match.query must be a non-empty string"))
+                })?
+                .to_string();
+            // Compile now so a malformed query fails at load, not silently at
+            // runtime.
+            compile_query(lang, &query)
+                .map_err(|e| RuleError(format!("{whence}.match.query is invalid: {e}")))?;
+            Ok((mtype, Match::Query(QueryMatch { language, query })))
         }
         _ => {
             // llm

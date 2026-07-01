@@ -111,8 +111,9 @@ fn match_order(match_type: &str) -> u8 {
     match match_type {
         "pattern" => 0,
         "structural" => 1,
-        "llm" => 2,
-        _ => 3,
+        "query" => 2,
+        "llm" => 3,
+        _ => 4,
     }
 }
 
@@ -120,7 +121,8 @@ pub fn run_check(target: &str, rules: &[Rule], no_llm: bool) -> CheckResult {
     let units = gather_units(target);
     let files_checked = units.len();
 
-    // pattern -> structural -> llm, so deterministic layers run before Claude.
+    // pattern -> structural -> query -> llm, so deterministic layers (all but
+    // llm) run before Claude.
     let mut ci_rules: Vec<&Rule> = rules.iter().filter(|r| r.in_ci()).collect();
     ci_rules.sort_by_key(|r| match_order(&r.match_type));
 

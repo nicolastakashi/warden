@@ -1,12 +1,14 @@
 # Design: a tree-sitter structural backend
 
-> **Status (partially implemented).** The backend swap and multi-language
-> forbidden-imports are **done**: the Rust port runs the `structural` matcher on
-> tree-sitter, with Python and Go wired up (`src/lang.rs`), and the `ast` backend
-> is gone (see [`decisions.md §9`](decisions.md)). What remains future work is the
-> **`match.type: query` rules-as-data DSL** (§5b, Phase 3 below) — embedding a
-> `.scm` query in a rule. The rest of this doc is kept as the design record and
-> the roadmap for that next step.
+> **Status (implemented).** The backend swap, multi-language forbidden-imports,
+> **and the `match.type: query` rules-as-data DSL are done.** The Rust port runs
+> the `structural` matcher on tree-sitter (Python and Go wired in `src/lang.rs`),
+> the `ast` backend is gone (see [`decisions.md §9`](decisions.md)), and a
+> `query` match type embeds a `.scm` query in a rule (§5b below) — Python, Go,
+> and Rust, compiled at `validate` time, dogfooded by `rules/no-unwrap-in-src.yaml`.
+> The design differs from §5b in one detail: rather than a reserved `@violation`
+> capture, **every** captured node is a violation (simpler, and lets a query
+> capture with any name). The rest of this doc is kept as the design record.
 
 A plan for replacing the `structural` matcher's parser and turning structural
 matching into a **rules-as-data** capability. It assumes the framing in
