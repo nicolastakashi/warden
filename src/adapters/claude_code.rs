@@ -12,6 +12,54 @@ use serde_json::Value;
 
 use crate::runtime_gate::{GateDecision, ProposedAction};
 
+/// For an Edit, the matchers should see the file as it WILL exist after the
+/// edit — not the raw `new_string` fragment. A fragment usually doesn't parse,
+/// so structural (tree-sitter) rules would silently skip it, and pattern rules
+/// would lose surrounding context. Reconstruct the result by applying
+/// `old_string` -> `new_string` to the on-disk file. Falls back to the fragment
+/// when reconstruction isn't possible (no path, empty/absent `old_string`, an
+/// unreadable file, or `old_string` not found) — and warns when a real file
+/// couldn't be read, since scanning the fragment alone can hide a violation.
+fn edited_file_content(
+    path: Option<&str>,
+    tool_input: &Value,
+    new_string: Option<String>,
+) -> Option<String> {
+    let new_string = new_string?;
+    // An empty `old_string` is not a real edit (the Edit tool rejects it), and
+    // `contains("")` is always true — guard against fabricating content by
+    // treating it as "no old_string" and falling back to the fragment.
+    let old = tool_input
+        .get("old_string")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty());
+    let replace_all = tool_input
+        .get("replace_all")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if let (Some(p), Some(old)) = (path, old) {
+        match std::fs::read_to_string(p) {
+            Ok(current) if current.contains(old) => {
+                return Some(if replace_all {
+                    current.replace(old, &new_string)
+                } else {
+                    current.replacen(old, &new_string, 1)
+                });
+            }
+            // old_string not in the file — a degenerate edit the tool rejects.
+            Ok(_) => {}
+            // File exists but couldn't be read (non-UTF-8, permissions): scanning
+            // the fragment alone can silently miss a structural violation, so warn.
+            Err(e) => eprintln!(
+                "warning: gate could not read '{p}' to reconstruct the edit ({e}); \
+                 scanning the new fragment only — structural rules may not fire"
+            ),
+        }
+    }
+    Some(new_string)
+}
+
 /// Map a PreToolUse hook payload to a neutral ProposedAction.
 pub fn parse_claude_payload(stdin_json: &str) -> Result<ProposedAction, String> {
     let payload: Value = serde_json::from_str(stdin_json).map_err(|e| e.to_string())?;
@@ -31,10 +79,15 @@ pub fn parse_claude_payload(stdin_json: &str) -> Result<ProposedAction, String> 
 
     let path = field("file_path");
     let command = field("command");
-    // For Write/Edit, scan the new text. Field names vary across CC versions.
+    // Write: the new file content. Edit: the file as it will exist *after* the
+    // edit (reconstructed from disk), not the raw fragment — see
+    // edited_file_content. Field names vary across CC versions.
     let content = match tool.as_str() {
         "Write" => field("content").or_else(|| field("file_text")),
-        "Edit" => field("new_string").or_else(|| field("content")),
+        "Edit" => {
+            let new_string = field("new_string").or_else(|| field("content"));
+            edited_file_content(path.as_deref(), &tool_input, new_string)
+        }
         _ => None,
     };
 

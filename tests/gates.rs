@@ -228,3 +228,195 @@ fn full_gate_roundtrip_block() {
     let out: serde_json::Value = serde_json::from_str(&text).unwrap();
     assert_eq!(out["hookSpecificOutput"]["permissionDecision"], "deny");
 }
+
+// --- Edit reconstruction: the gate judges the post-edit file, not the fragment -
+
+fn struct_runtime_rule() -> Rule {
+    let value: serde_norway::Value = serde_norway::from_str(
+        r#"
+id: no-cross-module-coupling
+description: "Billing must not import notifications"
+why: w
+scope: [runtime]
+enforcement: block
+weight: 4
+match:
+  type: structural
+  forbidden:
+    - from: "**/billing/**"
+      to: "**/notifications/**"
+"#,
+    )
+    .unwrap();
+    build_rule(&value, "t").unwrap()
+}
+
+#[test]
+fn edit_is_evaluated_as_the_resulting_file_not_the_fragment() {
+    // An Edit adds a forbidden import *inside a function* — the new_string is an
+    // indented fragment that does NOT parse standalone (tree-sitter sees an
+    // unexpected indent and bails), so a structural rule run against the raw
+    // fragment would silently skip it. The gate must reconstruct the full file
+    // from disk; only then does the import parse and the rule fire. (Run against
+    // the fragment alone this test asserts `block` but would get `allow`.)
+    let dir = std::env::temp_dir().join("warden_rs_test_edit");
+    let _ = std::fs::remove_dir_all(&dir);
+    let billing = dir.join("billing");
+    std::fs::create_dir_all(&billing).unwrap();
+    let file = billing.join("charge.py");
+    std::fs::write(&file, "def charge():\n    pass\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "    pass",
+            "new_string": "    from src.notifications import email\n    return email",
+        }
+    })
+    .to_string();
+
+    let action = parse_claude_payload(&payload).unwrap();
+    // content is the full resulting file, not just the indented fragment
+    let content = action.content.as_deref().unwrap();
+    assert!(
+        content.contains("def charge():"),
+        "should be the whole file"
+    );
+    assert!(content.contains("from src.notifications import email"));
+
+    let decision = evaluate_action(&action, std::slice::from_ref(&struct_runtime_rule()), true);
+    assert_eq!(decision.decision, "block");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_falls_back_to_fragment_when_file_missing() {
+    // No file on disk -> use the new_string fragment (previous behavior).
+    let payload = r#"{"tool_name": "Edit", "tool_input": {"file_path": "definitely/missing/x.py", "old_string": "o", "new_string": "n"}}"#;
+    let action = parse_claude_payload(payload).unwrap();
+    assert_eq!(action.content.as_deref(), Some("n"));
+}
+
+#[test]
+fn edit_replace_all_semantics() {
+    // replace_all toggles between every-occurrence and first-only reconstruction.
+    let dir = std::env::temp_dir().join("warden_rs_test_edit_all");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("x.py");
+    std::fs::write(&file, "a = 1\nb = 1\n").unwrap();
+
+    // replace_all: true -> every occurrence
+    let all = parse_claude_payload(
+        &serde_json::json!({
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": file.to_string_lossy(),
+                "old_string": "1", "new_string": "2", "replace_all": true
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert_eq!(all.content.as_deref(), Some("a = 2\nb = 2\n"));
+
+    // default (replace_all absent) -> first occurrence only
+    let first = parse_claude_payload(
+        &serde_json::json!({
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": file.to_string_lossy(),
+                "old_string": "1", "new_string": "2"
+            }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    assert_eq!(first.content.as_deref(), Some("a = 2\nb = 1\n"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_falls_back_when_old_string_absent() {
+    // File is readable but old_string isn't in it (a degenerate edit) -> don't
+    // emit a no-op file; fall back to the fragment.
+    let dir = std::env::temp_dir().join("warden_rs_test_edit_absent");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("x.py");
+    std::fs::write(&file, "real file content\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "NOT PRESENT", "new_string": "frag"
+        }
+    })
+    .to_string();
+    let action = parse_claude_payload(&payload).unwrap();
+    assert_eq!(action.content.as_deref(), Some("frag"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_pattern_rule_blocks_on_reconstructed_file() {
+    // A `pattern` rule also runs against the reconstructed file. The new_string
+    // here would match on its own too (pattern is per-line), so this confirms
+    // the Edit path reaches pattern rules and scans the full resulting file.
+    let dir = std::env::temp_dir().join("warden_rs_test_edit_pat");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("x.py");
+    std::fs::write(&file, "def f():\n    pass\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "    pass",
+            "new_string": "    t = os.getenv(\"X\")"
+        }
+    })
+    .to_string();
+    let action = parse_claude_payload(&payload).unwrap();
+    assert!(
+        action.content.as_deref().unwrap().contains("def f():"),
+        "scans the full reconstructed file"
+    );
+
+    let rule = env_rule("[runtime]", None, "block", 4);
+    let decision = evaluate_action(&action, std::slice::from_ref(&rule), true);
+    assert_eq!(decision.decision, "block");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn edit_empty_old_string_does_not_fabricate_content() {
+    // An empty old_string is not a real edit; `contains("")` is always true, so
+    // without a guard the reconstruction would prepend/interleave new_string
+    // into the file. It must fall back to the fragment, not fabricate content.
+    let dir = std::env::temp_dir().join("warden_rs_test_edit_empty");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("x.py");
+    std::fs::write(&file, "keep this\n").unwrap();
+
+    let payload = serde_json::json!({
+        "tool_name": "Edit",
+        "tool_input": {
+            "file_path": file.to_string_lossy(),
+            "old_string": "", "new_string": "frag"
+        }
+    })
+    .to_string();
+    let action = parse_claude_payload(&payload).unwrap();
+    assert_eq!(action.content.as_deref(), Some("frag"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

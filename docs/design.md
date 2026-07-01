@@ -131,6 +131,10 @@ The Claude Code surface is two translation functions in
 
 - `parse_claude_payload(stdin_json) -> ProposedAction` — maps a `PreToolUse`
   payload (Write/Edit/Bash; tolerant of field-name variants across CC versions).
+  For an **Edit** it reconstructs the file as it *will* exist (applies
+  `old_string`→`new_string` to the on-disk file) so matchers judge real,
+  parseable code — not the raw fragment, which a structural rule would otherwise
+  silently skip. Falls back to the fragment if the file is unreadable.
 - `format_claude_response(decision) -> (stdout, exit_code)` — blocks via the
   JSON permission path (`permissionDecision: "deny"`) and **always exits 0**
   (exit 1 does not block in Claude Code; only the JSON path carries a reason).
