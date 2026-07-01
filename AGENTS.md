@@ -28,6 +28,7 @@ cargo test runtime_blocks_env    # a single test by name
 cargo run -- validate --rules <dir>
 cargo run -- check <path> --rules <dir> [--format human|json]
 echo '<PreToolUse payload>' | cargo run -- gate --rules <dir>
+cargo run -- test <rule.yaml> <path>   # dry-run ONE rule (no rules dir needed)
 # or use the built binary directly: target/release/warden <...>
 
 # install on PATH so `warden` works anywhere (and as a Claude Code hook)

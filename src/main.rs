@@ -7,11 +7,13 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use warden::adapters::claude_code::{format_claude_response, parse_claude_payload};
-use warden::ci_gate::run_check;
-use warden::load::load_rules;
+use warden::ci_gate::{run_check, run_rule};
+use warden::load::{load_rule_file, load_rules};
+use warden::matchers::Violation;
 use warden::report::human::render_human;
 use warden::report::json_out::render_json;
 use warden::runtime_gate::evaluate_action;
+use warden::schema::Rule;
 
 #[derive(Parser)]
 #[command(
@@ -44,6 +46,56 @@ enum Command {
         #[arg(long)]
         rules: Option<PathBuf>,
     },
+    /// dry-run ONE rule against a path — see what it catches before it lands
+    Test {
+        /// the rule file to try (a `rules/*.yaml`)
+        rule: PathBuf,
+        /// path, directory, or glob to run it against
+        path: String,
+    },
+}
+
+/// Human-facing `warden test` output: what the rule caught, `file:line → snippet`.
+fn render_test(rule: &Rule, scanned: usize, violations: &[Violation]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "rule: {} [{}, {}]",
+        rule.id, rule.match_type, rule.enforcement
+    );
+    if scanned == 0 {
+        let _ = write!(
+            out,
+            "0 files matched — check the path/glob, or this rule's `paths` scope."
+        );
+        return out;
+    }
+    if violations.is_empty() {
+        let _ = write!(
+            out,
+            "scanned {scanned} file(s) · 0 matches — this rule fired on nothing here."
+        );
+        return out;
+    }
+    let _ = writeln!(
+        out,
+        "scanned {scanned} file(s) · {} match(es):",
+        violations.len()
+    );
+    for v in violations {
+        if v.snippet.is_empty() {
+            let _ = writeln!(out, "  {}:{}", v.location.file, v.location.line);
+        } else {
+            let _ = writeln!(
+                out,
+                "  {}:{} → {}",
+                v.location.file, v.location.line, v.snippet
+            );
+        }
+    }
+    out.truncate(out.trim_end().len());
+    out
 }
 
 /// Locate the rules directory: `--rules` -> `$CLAUDE_PROJECT_DIR/rules` -> `./rules`.
@@ -133,6 +185,18 @@ fn main() -> ExitCode {
             if !stdout_text.is_empty() {
                 println!("{stdout_text}");
             }
+            ExitCode::SUCCESS
+        }
+        Command::Test { rule, path } => {
+            let rule = match load_rule_file(&rule) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("invalid rule: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let (scanned, violations) = run_rule(&rule, &path);
+            println!("{}", render_test(&rule, scanned, &violations));
             ExitCode::SUCCESS
         }
     }

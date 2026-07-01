@@ -22,7 +22,8 @@ authority that checks an agent's output regardless of what the agent
 
 ```bash
 cargo install --path .          # build + put `warden` on PATH (needs a C compiler)
-./demo/run_demo.sh              # see it block a messy tree and pass a clean one
+./demo/run_demo.sh              # see the gate block a messy tree and pass a clean one
+warden test demo/rules/no-env-vars.yaml examples   # then dry-run a rule yourself
 ```
 
 A check looks like this:
@@ -78,7 +79,21 @@ Three matcher types:
 | `structural` | tree-sitter forbidden-imports (multi-language, by file extension) | architectural boundaries |
 | `query` | a tree-sitter query (`.scm`) as data; every captured node is a violation | structural checks beyond imports (e.g. no `.unwrap()`), one language per rule |
 
-`warden validate --rules <dir>` checks every rule. Authoring help lives in two
+`warden validate --rules <dir>` checks every rule for validity. To see what a
+rule actually *catches* before it lands, dry-run it against a path with `warden
+test` — one rule, no rules dir needed. It honours the rule's `paths` and ignores
+`scope`, so it answers "what would this rule flag here?":
+
+```bash
+$ warden test demo/rules/no-env-vars.yaml examples
+rule: no-env-vars [pattern, block]
+scanned 3 file(s) · 1 match(es):
+  examples/api/handler.py:16 → return int(os.getenv("REQUEST_TIMEOUT", "30"))
+```
+
+A clean run reports `0 matches` (fired on nothing), and a `paths` glob that
+matches no files reports `0 files matched` — so you catch a dead rule
+immediately instead of after it's wired in. Authoring help lives in two
 [Agent Skills](https://agentskills.io) under [`skills/`](skills/) —
 `warden-rule-author` and `warden-rule-discovery` — usable by any skills-compatible
 agent (Claude Code, Cursor, Codex, …). Install them into your own project with

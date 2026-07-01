@@ -218,6 +218,41 @@ fn runtime_gate_respects_paths() {
     assert_eq!(inside.decision, "block");
 }
 
+// --- `warden test`: dry-run ONE rule against a path (R4) --------------------
+
+#[test]
+fn run_rule_dry_runs_a_single_rule_against_a_path() {
+    // The engine behind `warden test`: one rule, honour its paths, ignore scope.
+    let rule = env_rule("[ci]", None, "block");
+    let (scanned, violations) = warden::ci_gate::run_rule(&rule, &examples());
+    assert!(scanned > 0, "scanned some files");
+    assert_eq!(violations.len(), 1, "one os.getenv hit across the examples");
+    assert!(violations[0].location.file.ends_with("handler.py"));
+    assert!(
+        violations[0].snippet.contains("os.getenv"),
+        "carries the offending source line"
+    );
+}
+
+#[test]
+fn run_rule_honours_the_rule_paths_scope() {
+    // A rule scoped away from everything scans nothing — the `warden test`
+    // signal that a `paths` glob matched no files.
+    let rule = env_rule("[ci]", Some(r#"["nonexistent/**"]"#), "block");
+    let (scanned, violations) = warden::ci_gate::run_rule(&rule, &examples());
+    assert_eq!(scanned, 0, "paths scope excludes every file");
+    assert!(violations.is_empty());
+}
+
+#[test]
+fn load_rule_file_reads_a_single_rule() {
+    // `warden test` loads one rule file directly, before it lives in a rules dir.
+    let rule = warden::load::load_rule_file(&root().join("rules").join("no-unwrap-in-src.yaml"))
+        .expect("loads the query rule");
+    assert_eq!(rule.id, "no-unwrap-in-src");
+    assert_eq!(rule.match_type, "query");
+}
+
 #[test]
 fn check_path_scoped_rule_only_fires_in_scope() {
     let dir = std::env::temp_dir().join("warden_rs_test_scoped");

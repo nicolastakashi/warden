@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::glob::fnmatch;
-use crate::matchers::{CodeUnit, run_matcher, units_for_rule};
+use crate::matchers::{CodeUnit, Violation, run_matcher, units_for_rule};
 use crate::results::{CheckResult, RuleResult};
 use crate::schema::Rule;
 
@@ -102,6 +102,18 @@ pub fn gather_units(target: &str) -> Vec<CodeUnit> {
         }
     }
     units
+}
+
+/// Dry-run **one** rule against a path (the engine behind `warden test`): gather
+/// units, honour the rule's `paths`, run its matcher. Ignores `scope` — a
+/// dry-run is "what would this rule catch here", regardless of ci/runtime.
+/// Returns `(files_scanned_after_paths, violations)`.
+pub fn run_rule(rule: &Rule, target: &str) -> (usize, Vec<Violation>) {
+    let units = gather_units(target);
+    let scoped = units_for_rule(&units, rule);
+    let scanned = scoped.len();
+    let violations = run_matcher(&scoped, rule);
+    (scanned, violations)
 }
 
 fn match_order(match_type: &str) -> u8 {
