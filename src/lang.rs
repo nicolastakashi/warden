@@ -39,10 +39,11 @@ fn dots_to_slash(s: &str) -> String {
 pub struct ImportRef {
     /// The imported module as a slash path (`a.b.c` -> `a/b/c`).
     pub path: String,
-    /// 1-based line of the import statement (from tree-sitter).
+    /// 1-based line of *this candidate's* node (an imported name in a multi-line
+    /// import points at its own line, not the `from` line). See `locate`.
     pub line: usize,
-    /// The offending source line — the import statement's own text, straight
-    /// from the tree-sitter node, so it shares the node's line (single source).
+    /// The source line at `line`, trimmed — the offending line to show. Line and
+    /// snippet share the candidate node's row (see `locate`), so they agree.
     pub snippet: String,
 }
 
