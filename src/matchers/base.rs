@@ -32,6 +32,10 @@ pub struct Violation {
     pub rule_id: String,
     pub location: Location,
     pub reason: String,
+    /// The offending source line, taken from the matcher's authoritative source
+    /// (the matched line for `pattern`, the tree-sitter node for `structural`)
+    /// so the line number and this text never come from two different places.
+    pub snippet: String,
 }
 
 pub fn norm_path(path: &str) -> &str {

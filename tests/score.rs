@@ -22,6 +22,7 @@ fn result(id: &str, enforcement: &str, weight: i64, fired: bool) -> RuleResult {
                 line: 1,
             },
             reason: String::new(),
+            snippet: String::new(),
         }]
     } else {
         Vec::new()

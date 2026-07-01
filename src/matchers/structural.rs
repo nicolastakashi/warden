@@ -52,26 +52,29 @@ pub fn match_structural(units: &[CodeUnit], rule: &Rule) -> Vec<Violation> {
             }
         };
 
-        // `from X import Y` yields candidates X and X/Y; one import statement
-        // must produce at most one violation, so dedupe by line number.
+        // `from X import Y` yields candidates X and X/Y; dedupe by line so a
+        // single import line produces at most one violation. Candidates carry
+        // per-name lines now, so a multi-line `from X import (a, b)` can
+        // legitimately flag `a` and `b` on their own lines.
         let mut seen_lines: HashSet<usize> = HashSet::new();
-        for (module_path, lineno) in candidates {
-            if seen_lines.contains(&lineno) {
+        for cand in candidates {
+            if seen_lines.contains(&cand.line) {
                 continue;
             }
             for edge in &edges {
-                if fnmatch(&module_path, &edge.to) {
-                    seen_lines.insert(lineno);
+                if fnmatch(&cand.path, &edge.to) {
+                    seen_lines.insert(cand.line);
                     violations.push(Violation {
                         rule_id: rule.id.clone(),
                         location: Location {
                             file: unit.path.clone(),
-                            line: lineno,
+                            line: cand.line,
                         },
                         reason: format!(
-                            "'{path}' imports '{module_path}' (forbidden: {} -> {})",
-                            edge.from_, edge.to
+                            "'{path}' imports '{}' (forbidden: {} -> {})",
+                            cand.path, edge.from_, edge.to
                         ),
+                        snippet: cand.snippet.clone(),
                     });
                     break; // one violation per import is enough
                 }

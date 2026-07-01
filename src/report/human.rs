@@ -8,6 +8,9 @@ fn lines_for(result: &RuleResult, out: &mut Vec<String>) {
             "  {}:{} — {}",
             v.location.file, v.location.line, result.rule.description
         ));
+        if !v.snippet.is_empty() {
+            out.push(format!("      {}", v.snippet));
+        }
     }
 }
 
