@@ -141,3 +141,39 @@ tests pass unchanged. The dogfood rules were re-authored for the Rust tree
 `match.type: query` that puts a `.scm` query in the rule as data — is still
 future work (Phase 3 in `tree-sitter.md`). This entry covers the backend swap
 and the multi-language forbidden-imports, not the query DSL.
+
+## 10. Slimmed to runtime-first — removed the `llm` matcher, the weighted score, and `extent`
+
+A deliberate scope cut: the runtime gate is the strongest, most-defensible part
+of Warden (`conclusion.md`), and a competitive scan (jul/2026) showed the
+runtime-gate niche is now contested while **nobody else pairs a CI gate with
+AST-aware rules**. So the near-term product *is* the runtime gate; the CI gate
+stays as a simple offline scan and its sophistication is deferred to a later
+"CI chapter" (`docs/roadmap.md`). Three things were removed:
+
+- **The `llm` matcher.** It contradicted the core thesis (determinism is the
+  brand) *and* the one limit that matters — it was the engine *pretending to
+  supply intent*, which `conclusion.md` says the engine cannot and should not
+  do. On the runtime path it also meant shelling out to `claude` per action:
+  latency plus a non-deterministic *block*. The repo's own rules never used it
+  (only a demo rule did). Gone: `matchers/llm.rs`, the `llm` match type, the
+  `ClaudeRunner` plumbing, and the `no_llm` flag/param throughout.
+- **The weighted 0–100 score + `weight` + bands.** We built a weighted score and
+  then concluded it is "a signal, not a verdict" — premature precision on a
+  consumer we're deferring, and an unreliable number is worse than none. `warden
+  check` now reports which rules fired (`file:line → snippet`) plus
+  blocking/warning/audit counts, and exits 1 on any violated `block` rule. Gone:
+  `score.rs`, the `weight` field, `band`.
+- **`extent`.** Dead computed state — recorded but never used to weight the
+  score (which itself is now gone).
+
+**Not removed:** the CI gate itself (`warden check`) — removing it would collapse
+Warden into the runtime-only category the competitors already own and foreclose
+the future CI+AST moat. The `query` matcher stays and is central (the sharp
+AST rules it expresses are exactly the runtime gate's killer app).
+
+**Blast radius was ~zero:** single-user, local-only, no external consumers, so
+the schema change (dropping `weight`) and rule rewrites cost nothing (backward
+compatibility is not a concern for this POC). The one thing to reintroduce when
+the CI chapter starts is scoring — but diff-scoped (see `conclusion.md`), so it
+scores *new* code, not pre-existing debt.

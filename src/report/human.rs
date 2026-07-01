@@ -1,4 +1,4 @@
-//! --format human (default) — score + band, blocking failures first.
+//! --format human (default) — a counts summary, blocking failures first.
 
 use crate::results::{CheckResult, RuleResult};
 
@@ -16,13 +16,6 @@ fn lines_for(result: &RuleResult, out: &mut Vec<String>) {
 
 pub fn render_human(check: &CheckResult) -> String {
     let mut lines: Vec<String> = Vec::new();
-    lines.push(format!(
-        "Score: {}/100 ({})   files checked: {}   {}",
-        check.score,
-        check.band,
-        check.files_checked,
-        if check.blocked { "BLOCKED" } else { "PASS" }
-    ));
 
     let fired: Vec<&RuleResult> = check.results.iter().filter(|r| !r.passed()).collect();
     let blocking: Vec<&&RuleResult> = fired
@@ -37,6 +30,15 @@ pub fn render_human(check: &CheckResult) -> String {
         .iter()
         .filter(|r| r.rule.enforcement == "audit")
         .collect();
+
+    lines.push(format!(
+        "{} files checked · {} blocking, {} warnings, {} audit   {}",
+        check.files_checked,
+        blocking.len(),
+        warnings.len(),
+        audits.len(),
+        if check.blocked { "BLOCKED" } else { "PASS" }
+    ));
 
     if !blocking.is_empty() {
         lines.push(String::new());
@@ -54,7 +56,7 @@ pub fn render_human(check: &CheckResult) -> String {
     }
     if !audits.is_empty() {
         lines.push(String::new());
-        lines.push("Audit (logged only, not scored):".to_string());
+        lines.push("Audit (logged only, does not block):".to_string());
         for r in &audits {
             lines_for(r, &mut lines);
         }

@@ -31,11 +31,9 @@ fn write_action(path: &str, content: &str) -> ProposedAction {
 // --- CI gate ----------------------------------------------------------------
 
 #[test]
-fn check_examples_blocks_with_score() {
-    let check = run_check(&examples(), &rules(), true);
+fn check_examples_blocks_and_reports_fired_rules() {
+    let check = run_check(&examples(), &rules());
     assert!(check.blocked);
-    assert_eq!(check.band, "Fair");
-    assert_eq!(check.score, 60); // passed(4 struct + 2 llm-skipped) / total 10
     let rec = to_decision_record(&check);
     let fired: Vec<&str> = rec["violations"]
         .as_array()
@@ -52,22 +50,20 @@ fn check_examples_blocks_with_score() {
         .find(|v| v["rule_id"] == "no-env-vars")
         .unwrap();
     assert_eq!(env["enforcement"], "block");
-    let extent = env["extent"].as_f64().unwrap();
-    assert!(extent > 0.0 && extent <= 1.0);
 }
 
 // --- runtime gate -----------------------------------------------------------
 
 #[test]
 fn runtime_blocks_env_access() {
-    let d = evaluate_action(&write_action("x.py", "v = os.getenv('A')"), &rules(), true);
+    let d = evaluate_action(&write_action("x.py", "v = os.getenv('A')"), &rules());
     assert_eq!(d.decision, "block");
     assert_eq!(d.reasons[0].rule_id, "no-env-vars");
 }
 
 #[test]
 fn runtime_allows_clean() {
-    let d = evaluate_action(&write_action("x.py", "v = 1"), &rules(), true);
+    let d = evaluate_action(&write_action("x.py", "v = 1"), &rules());
     assert_eq!(d.decision, "allow");
 }
 
@@ -79,7 +75,7 @@ fn runtime_scans_bash_command() {
         content: None,
         command: Some("echo $(os.environ)".to_string()),
     };
-    let d = evaluate_action(&action, &rules(), true);
+    let d = evaluate_action(&action, &rules());
     assert_eq!(d.decision, "block");
 }
 
@@ -92,7 +88,6 @@ fn runtime_ignores_ci_only_rules() {
             "from src.notifications import email",
         ),
         &rules(),
-        true,
     );
     assert_eq!(d.decision, "allow");
 }
@@ -180,7 +175,7 @@ fn deny_reason_is_actionable() {
     // names the rule, points at file:line with the offending source line, and
     // includes the rule's rationale — enough to fix it on the next try.
     let action = write_action("service.py", "import os\n\nX = os.getenv('TOKEN')\n");
-    let decision = evaluate_action(&action, &rules(), true);
+    let decision = evaluate_action(&action, &rules());
     let (text, _) = format_claude_response(&decision);
     let out: serde_json::Value = serde_json::from_str(&text).unwrap();
     let reason = out["hookSpecificOutput"]["permissionDecisionReason"]
@@ -199,10 +194,10 @@ fn deny_reason_is_actionable() {
 
 // --- paths scoping in both gates --------------------------------------------
 
-fn env_rule(scope: &str, paths: Option<&str>, enforcement: &str, weight: i64) -> Rule {
+fn env_rule(scope: &str, paths: Option<&str>, enforcement: &str) -> Rule {
     let paths_line = paths.map(|p| format!("paths: {p}\n")).unwrap_or_default();
     let yaml = format!(
-        "id: no-env\ndescription: no env access\nwhy: use flags\nscope: {scope}\nenforcement: {enforcement}\nweight: {weight}\n{paths_line}match:\n  type: pattern\n  patterns: ['os\\.getenv']\n"
+        "id: no-env\ndescription: no env access\nwhy: use flags\nscope: {scope}\nenforcement: {enforcement}\n{paths_line}match:\n  type: pattern\n  patterns: ['os\\.getenv']\n"
     );
     let value: serde_norway::Value = serde_norway::from_str(&yaml).unwrap();
     build_rule(&value, "t").unwrap()
@@ -210,17 +205,15 @@ fn env_rule(scope: &str, paths: Option<&str>, enforcement: &str, weight: i64) ->
 
 #[test]
 fn runtime_gate_respects_paths() {
-    let rule = env_rule("[runtime]", Some(r#"["src/feature/**"]"#), "block", 4);
+    let rule = env_rule("[runtime]", Some(r#"["src/feature/**"]"#), "block");
     let outside = evaluate_action(
         &write_action("settings.py", "x = os.getenv('A')"),
         std::slice::from_ref(&rule),
-        true,
     );
     assert_eq!(outside.decision, "allow");
     let inside = evaluate_action(
         &write_action("src/feature/x.py", "x = os.getenv('A')"),
         std::slice::from_ref(&rule),
-        true,
     );
     assert_eq!(inside.decision, "block");
 }
@@ -234,8 +227,8 @@ fn check_path_scoped_rule_only_fires_in_scope() {
     std::fs::write(dir.join("a").join("x.py"), "v = os.getenv('A')\n").unwrap();
     std::fs::write(dir.join("b").join("y.py"), "v = os.getenv('A')\n").unwrap();
 
-    let rule = env_rule("[ci]", Some(r#"["**/a/**"]"#), "warn", 2);
-    let check = run_check(&dir.to_string_lossy(), std::slice::from_ref(&rule), true);
+    let rule = env_rule("[ci]", Some(r#"["**/a/**"]"#), "warn");
+    let check = run_check(&dir.to_string_lossy(), std::slice::from_ref(&rule));
     let fired: Vec<String> = check
         .results
         .iter()
@@ -251,7 +244,7 @@ fn check_path_scoped_rule_only_fires_in_scope() {
 fn full_gate_roundtrip_block() {
     let payload = r#"{"tool_name": "Write", "tool_input": {"file_path": "x.py", "content": "v = os.getenv('A')"}}"#;
     let action = parse_claude_payload(payload).unwrap();
-    let decision = evaluate_action(&action, &rules(), true);
+    let decision = evaluate_action(&action, &rules());
     let (text, code) = format_claude_response(&decision);
     assert_eq!(code, 0);
     let out: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -268,7 +261,6 @@ description: "Billing must not import notifications"
 why: w
 scope: [runtime]
 enforcement: block
-weight: 4
 match:
   type: structural
   forbidden:
@@ -314,7 +306,7 @@ fn edit_is_evaluated_as_the_resulting_file_not_the_fragment() {
     );
     assert!(content.contains("from src.notifications import email"));
 
-    let decision = evaluate_action(&action, std::slice::from_ref(&struct_runtime_rule()), true);
+    let decision = evaluate_action(&action, std::slice::from_ref(&struct_runtime_rule()));
     assert_eq!(decision.decision, "block");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -418,8 +410,8 @@ fn edit_pattern_rule_blocks_on_reconstructed_file() {
         "scans the full reconstructed file"
     );
 
-    let rule = env_rule("[runtime]", None, "block", 4);
-    let decision = evaluate_action(&action, std::slice::from_ref(&rule), true);
+    let rule = env_rule("[runtime]", None, "block");
+    let decision = evaluate_action(&action, std::slice::from_ref(&rule));
     assert_eq!(decision.decision, "block");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -460,7 +452,6 @@ description: "No .unwrap() in production Rust"
 why: w
 scope: [runtime]
 enforcement: block
-weight: 2
 paths: ["**/src/**"]
 match:
   type: query
@@ -509,7 +500,7 @@ fn edit_query_rule_blocks_on_reconstructed_rust_file() {
     assert!(content.contains("x.unwrap()"));
 
     let rule = no_unwrap_runtime_rule();
-    let decision = evaluate_action(&action, std::slice::from_ref(&rule), true);
+    let decision = evaluate_action(&action, std::slice::from_ref(&rule));
     assert_eq!(
         decision.decision, "block",
         "the reconstructed .rs file must trip the query rule"
@@ -519,7 +510,7 @@ fn edit_query_rule_blocks_on_reconstructed_rust_file() {
     // content does not parse, so it would be allowed (skipped).
     let frag = write_action(&file.to_string_lossy(), "    x.unwrap()\n");
     assert_eq!(
-        evaluate_action(&frag, std::slice::from_ref(&rule), true).decision,
+        evaluate_action(&frag, std::slice::from_ref(&rule)).decision,
         "allow",
         "the bare fragment does not parse, so it is skipped (fail-open)"
     );

@@ -4,7 +4,6 @@ why: "By design the llm matcher shells out to the `claude` CLI (claude -p, headl
 
 scope: [ci, runtime]
 enforcement: block
-weight: 4
 
 paths:
   - "**/src/**"

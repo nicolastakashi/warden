@@ -1,10 +1,10 @@
 //! Consumer 2 — the runtime gate.
 //!
 //! Receives one proposed action, filters rules to scope contains `runtime`,
-//! reads only `enforcement` (block/warn), ignores weight/score, returns
-//! block/allow. The core only sees `ProposedAction` and returns `GateDecision`.
+//! reads only `enforcement` (block/warn), returns block/allow. The core only
+//! sees `ProposedAction` and returns `GateDecision`.
 
-use crate::matchers::{CodeUnit, RealClaude, run_matcher, units_for_rule};
+use crate::matchers::{CodeUnit, run_matcher, units_for_rule};
 use crate::schema::Rule;
 
 #[derive(Debug, Clone)]
@@ -69,13 +69,12 @@ fn unit_for(action: &ProposedAction) -> Option<CodeUnit> {
     None
 }
 
-pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) -> GateDecision {
+pub fn evaluate_action(action: &ProposedAction, rules: &[Rule]) -> GateDecision {
     let unit = match unit_for(action) {
         Some(u) => u,
         None => return GateDecision::allow(),
     };
     let units = vec![unit];
-    let runner = RealClaude;
 
     let mut block = false;
     let mut reasons: Vec<Reason> = Vec::new();
@@ -89,7 +88,7 @@ pub fn evaluate_action(action: &ProposedAction, rules: &[Rule], no_llm: bool) ->
         if scoped.is_empty() {
             continue;
         }
-        let violations = run_matcher(&scoped, rule, no_llm, &runner);
+        let violations = run_matcher(&scoped, rule);
         if violations.is_empty() {
             continue;
         }

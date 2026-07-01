@@ -38,15 +38,11 @@ enum Command {
         rules: Option<PathBuf>,
         #[arg(long, default_value = "human", value_parser = ["human", "json"])]
         format: String,
-        #[arg(long = "no-llm")]
-        no_llm: bool,
     },
     /// runtime gate: read the hook payload on stdin
     Gate {
         #[arg(long)]
         rules: Option<PathBuf>,
-        #[arg(long = "no-llm")]
-        no_llm: bool,
     },
 }
 
@@ -71,11 +67,10 @@ fn main() -> ExitCode {
                     println!("ok: {} rule(s) valid", rules.len());
                     for r in &rules {
                         println!(
-                            "  - {} [{}, {}, weight {}, scope {}]",
+                            "  - {} [{}, {}, scope {}]",
                             r.id,
                             r.match_type,
                             r.enforcement,
-                            r.weight,
                             r.scope.join(",")
                         );
                     }
@@ -91,7 +86,6 @@ fn main() -> ExitCode {
             path,
             rules,
             format,
-            no_llm,
         } => {
             let dir = rules_dir(rules);
             let rules = match load_rules(&dir) {
@@ -101,7 +95,7 @@ fn main() -> ExitCode {
                     return ExitCode::FAILURE;
                 }
             };
-            let check = run_check(&path, &rules, no_llm);
+            let check = run_check(&path, &rules);
             if format == "json" {
                 println!("{}", render_json(&check));
             } else {
@@ -113,7 +107,7 @@ fn main() -> ExitCode {
                 ExitCode::SUCCESS
             }
         }
-        Command::Gate { rules, no_llm } => {
+        Command::Gate { rules } => {
             let dir = rules_dir(rules);
             // A broken rule set must not crash the agent — emit no opinion.
             let rules = match load_rules(&dir) {
@@ -134,7 +128,7 @@ fn main() -> ExitCode {
                     return ExitCode::SUCCESS;
                 }
             };
-            let decision = evaluate_action(&action, &rules, no_llm);
+            let decision = evaluate_action(&action, &rules);
             let (stdout_text, _exit) = format_claude_response(&decision);
             if !stdout_text.is_empty() {
                 println!("{stdout_text}");

@@ -4,8 +4,8 @@
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 **A deterministic policy engine for AI-agent-generated code.** Write a rule once;
-enforce it both in CI (a 0–100 score, blocks on violations) and at runtime (a
-Claude Code hook that blocks a bad edit before it lands).
+enforce it both in CI (scans files under a path, blocks on violations) and at
+runtime (a Claude Code hook that blocks a bad edit before it lands).
 
 LLMs don't enforce policy — they're *subject* to it. Warden is the independent
 authority that checks an agent's output regardless of what the agent
@@ -14,7 +14,7 @@ authority that checks an agent's output regardless of what the agent
 > **Status — early but working.** A real Rust tool (single static binary,
 > multi-language via tree-sitter, tested, run read-only against a real 5.6k-file
 > repo) — not a toy, not yet battle-tested. Its proven sweet spot is the
-> **runtime gate on sharp rules**; treat the CI score as a **signal, not a
+> **runtime gate on sharp rules**; treat a CI failure as a **candidate, not a
 > verdict** (a hit means "matches a written convention," not "is a defect").
 > See [`docs/conclusion.md`](docs/conclusion.md) for the honest assessment.
 
@@ -29,10 +29,15 @@ A check looks like this:
 
 ```
 $ warden check examples --rules demo/rules
-Score: 60/100 (Fair)   files checked: 3   BLOCKED
+3 files checked · 1 blocking, 0 warnings, 1 audit   BLOCKED
 
 Blocking failures:
   examples/api/handler.py:16 — Use feature flags instead of environment variables
+      return int(os.getenv("REQUEST_TIMEOUT", "30"))
+
+Audit (logged only, does not block):
+  examples/config/flags.py:13 — Prefer the get_flag() helper over direct FEATURE_FLAGS access
+      return FEATURE_FLAGS["new_checkout"]
 ```
 
 ## How it works
@@ -41,7 +46,7 @@ One YAML rule format feeds two consumers that share the same engine:
 
 | Consumer | Input | Output |
 |---|---|---|
-| **CI gate** (`warden check <path>`) | whole files under a path | a 0–100 score + exit 1 if any `block` rule fired |
+| **CI gate** (`warden check <path>`) | whole files under a path | exit 1 if any `block` rule fired, + a report of what fired |
 | **Runtime gate** (`warden gate`) | one proposed agent action (hook payload on stdin) | block / allow |
 
 The core is **agent-agnostic** — it only ever sees code in and violations out.
@@ -59,19 +64,19 @@ description: "Use feature flags instead of environment variables"
 why: "Direct env access bypasses the flag system and causes config drift."
 scope: [ci, runtime]          # where it applies: ci, runtime, or both
 enforcement: block            # block | warn | audit
-weight: 4                     # 1 | 2 | 4  (weights the CI score)
 paths: ["src/**"]             # optional: scope to a subtree (default: all files)
 match:
   type: pattern               # exactly one matcher (below)
   patterns: ['os\.getenv']
 ```
 
-Two matcher types:
+Three matcher types:
 
 | type | how | use for |
 |---|---|---|
 | `pattern` | regex over each line | literal / syntactic signals |
 | `structural` | tree-sitter forbidden-imports (multi-language, by file extension) | architectural boundaries |
+| `query` | a tree-sitter query (`.scm`) as data; every captured node is a violation | structural checks beyond imports (e.g. no `.unwrap()`), one language per rule |
 
 `warden validate --rules <dir>` checks every rule. Authoring help lives in two
 [Agent Skills](https://agentskills.io) under [`skills/`](skills/) —

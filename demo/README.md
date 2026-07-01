@@ -17,8 +17,7 @@ would keep `rules/` at its own root instead). Every command below passes
 ## Run it
 
 ```bash
-./demo/run_demo.sh            # full run — llm matcher live via the `claude` CLI
-./demo/run_demo.sh --no-llm   # offline — deterministic layers only (no `claude`)
+./demo/run_demo.sh            # deterministic, fully offline
 ```
 
 The script walks through: validate → `before` (human) → `before` (JSON decision
@@ -41,7 +40,7 @@ against the actual agent — not just synthetic stdin.
 
 The wiring is a committed file — [`demo/.claude/settings.json`](.claude/settings.json) —
 not generated inline. It activates the gate as a `PreToolUse` hook for `Write|Edit`
-and calls `warden gate --no-llm`; `${CLAUDE_PROJECT_DIR}` resolves to the demo,
+and calls `warden gate`; `${CLAUDE_PROJECT_DIR}` resolves to the demo,
 so the gate finds `demo/rules` with no `--rules` needed. Because of that, you can
 also just run Claude Code with the demo as the project root and the gate is live
 (requires `warden` on your PATH).
@@ -53,18 +52,15 @@ also just run Claude Code with the demo as the project root and the gate is live
 | `api/checkout.py` | `no-env-vars` (`os.getenv`) | pattern | **block** |
 | `api/checkout.py` | `prefer-flag-helper` (`FEATURE_FLAGS[...]`) | pattern | audit |
 | `billing/charge.py` | `no-cross-module-coupling` (imports `notifications`) | structural | **block** |
-| `billing/receipts.py` | `no-pii-in-logs` (logs name + email) | llm | warn |
 | `notifications/email.py`, `config/flags.py` | — clean — | | |
 
 ## What you should see
 
-- **`before/`** — score **0/100 (Poor)**, **BLOCKED** (exit 1). All three scored
-  rules fail (two blocks + one warn); the audit finding is logged but not scored.
-  *(With `--no-llm` the PII warn is skipped and counts as a pass → score 20.)*
-- **`after/`** — score **100/100 (Excellent)**, **PASS** (exit 0). Every scored
-  rule passes; nothing fires.
+- **`before/`** — **BLOCKED** (exit 1): the two `block` rules fire; the audit
+  finding is logged but does not block.
+- **`after/`** — **PASS** (exit 0): nothing fires.
 
-That 0 → 100 swing is the point: the same engine and the same rules, run as a CI
-gate, turn a messy change into a measurable, blocking signal — and confirm the
-fix. The runtime-gate steps show the *other* consumer of the same rules: one
-proposed Claude Code action in, `block`/`allow` out.
+That before → after swing is the point: the same engine and the same rules, run
+as a CI gate, turn a messy change into a blocking signal — and confirm the fix.
+The runtime-gate steps show the *other* consumer of the same rules: one proposed
+Claude Code action in, `block`/`allow` out.

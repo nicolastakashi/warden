@@ -4,7 +4,7 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "warden gate --no-llm" }
+          { "type": "command", "command": "warden gate" }
         ]
       }
     ]

@@ -13,7 +13,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: pattern
   patterns: [x]
@@ -36,7 +35,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: structural
   forbidden:
@@ -55,43 +53,22 @@ match:
 }
 
 #[test]
-fn valid_llm_rule() {
-    let r = build(
-        r#"
-id: r
-description: d
-why: w
-scope: [ci]
-enforcement: block
-weight: 4
-match:
-  type: llm
-  prompt: check
-"#,
-    )
-    .unwrap();
-    assert!(matches!(r.matcher, Match::Llm(_)));
-}
-
-#[test]
 fn invalid_rules_raise() {
     let cases = [
-        // weight not in {1,2,4}
-        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, weight: 3, match: {type: pattern, patterns: [x]}}"#,
         // bad enforcement
-        r#"{id: r, description: d, why: w, scope: [ci], enforcement: halt, weight: 4, match: {type: pattern, patterns: [x]}}"#,
+        r#"{id: r, description: d, why: w, scope: [ci], enforcement: halt, match: {type: pattern, patterns: [x]}}"#,
         // bad scope
-        r#"{id: r, description: d, why: w, scope: [prod], enforcement: block, weight: 4, match: {type: pattern, patterns: [x]}}"#,
+        r#"{id: r, description: d, why: w, scope: [prod], enforcement: block, match: {type: pattern, patterns: [x]}}"#,
         // empty scope
-        r#"{id: r, description: d, why: w, scope: [], enforcement: block, weight: 4, match: {type: pattern, patterns: [x]}}"#,
+        r#"{id: r, description: d, why: w, scope: [], enforcement: block, match: {type: pattern, patterns: [x]}}"#,
         // bad id
-        r#"{id: "Not Kebab", description: d, why: w, scope: [ci], enforcement: block, weight: 4, match: {type: pattern, patterns: [x]}}"#,
+        r#"{id: "Not Kebab", description: d, why: w, scope: [ci], enforcement: block, match: {type: pattern, patterns: [x]}}"#,
         // bad match type
-        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, weight: 4, match: {type: regex, patterns: [x]}}"#,
+        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, match: {type: regex, patterns: [x]}}"#,
         // empty patterns
-        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, weight: 4, match: {type: pattern, patterns: []}}"#,
+        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, match: {type: pattern, patterns: []}}"#,
         // unknown field — schema is closed
-        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, weight: 4, extra: 1, match: {type: pattern, patterns: [x]}}"#,
+        r#"{id: r, description: d, why: w, scope: [ci], enforcement: block, extra: 1, match: {type: pattern, patterns: [x]}}"#,
     ];
     for (i, case) in cases.iter().enumerate() {
         assert!(build(case).is_err(), "case {i} should have failed: {case}");
@@ -107,7 +84,6 @@ id: r
 description: d
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: pattern
   patterns: [x]
@@ -131,7 +107,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 paths: ["src/**", "lib/*.py"]
 match:
   type: pattern
@@ -147,7 +122,7 @@ fn paths_invalid_raises() {
     let bads = ["[]", r#""src/**""#, r#"[""]"#, "[1]", "{}"];
     for bad in bads {
         let yaml = format!(
-            r#"{{id: r, description: d, why: w, scope: [ci], enforcement: block, weight: 4, paths: {bad}, match: {{type: pattern, patterns: [x]}}}}"#
+            r#"{{id: r, description: d, why: w, scope: [ci], enforcement: block, paths: {bad}, match: {{type: pattern, patterns: [x]}}}}"#
         );
         assert!(build(&yaml).is_err(), "paths {bad} should have failed");
     }

@@ -4,7 +4,6 @@ why: "The helper centralises defaults and overrides; direct dict access skips th
 
 scope: [ci]
 enforcement: audit
-weight: 1
 
 match:
   type: pattern

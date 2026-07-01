@@ -7,8 +7,6 @@ use crate::schema::Rule;
 pub struct RuleResult {
     pub rule: Rule,
     pub violations: Vec<Violation>,
-    /// fraction of checked (in-scope) files where the rule fired
-    pub extent: f64,
 }
 
 impl RuleResult {
@@ -20,8 +18,6 @@ impl RuleResult {
 #[derive(Debug, Clone)]
 pub struct CheckResult {
     pub results: Vec<RuleResult>,
-    pub score: i64,
-    pub band: String,
     pub blocked: bool,
     pub files_checked: usize,
 }

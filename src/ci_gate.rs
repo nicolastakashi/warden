@@ -1,18 +1,15 @@
 //! Consumer 1 — the CI gate.
 //!
 //! Pipeline: gather units from a path -> filter to scope contains `ci` -> apply
-//! each rule's `paths` -> run matchers (pattern, then structural, then llm) ->
-//! two independent results: enforcement (any violated `block` -> blocked) and a
-//! weighted 0–100 score.
+//! each rule's `paths` -> run matchers (pattern, then structural, then query) ->
+//! enforcement: any violated `block` rule -> blocked.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::glob::fnmatch;
-use crate::matchers::{CodeUnit, RealClaude, run_matcher, units_for_rule};
+use crate::matchers::{CodeUnit, run_matcher, units_for_rule};
 use crate::results::{CheckResult, RuleResult};
 use crate::schema::Rule;
-use crate::score::{band, compute_score};
 
 // Extensions treated as scannable text. Structural still self-filters by lang.
 const TEXT_SUFFIXES: [&str; 16] = [
@@ -112,51 +109,35 @@ fn match_order(match_type: &str) -> u8 {
         "pattern" => 0,
         "structural" => 1,
         "query" => 2,
-        "llm" => 3,
-        _ => 4,
+        _ => 3,
     }
 }
 
-pub fn run_check(target: &str, rules: &[Rule], no_llm: bool) -> CheckResult {
+pub fn run_check(target: &str, rules: &[Rule]) -> CheckResult {
     let units = gather_units(target);
     let files_checked = units.len();
 
-    // pattern -> structural -> query -> llm, so deterministic layers (all but
-    // llm) run before Claude.
+    // pattern -> structural -> query, a deterministic layer order.
     let mut ci_rules: Vec<&Rule> = rules.iter().filter(|r| r.in_ci()).collect();
     ci_rules.sort_by_key(|r| match_order(&r.match_type));
 
-    let runner = RealClaude;
     let mut results: Vec<RuleResult> = Vec::new();
     let mut blocked = false;
 
     for rule in ci_rules {
         let scoped = units_for_rule(&units, rule); // honour optional paths
-        let violations = run_matcher(&scoped, rule, no_llm, &runner);
-        let fired_files: HashSet<&str> = violations
-            .iter()
-            .map(|v| v.location.file.as_str())
-            .collect();
-        let extent = if scoped.is_empty() {
-            0.0
-        } else {
-            fired_files.len() as f64 / scoped.len() as f64
-        };
+        let violations = run_matcher(&scoped, rule);
         if !violations.is_empty() && rule.enforcement == "block" {
             blocked = true;
         }
         results.push(RuleResult {
             rule: rule.clone(),
             violations,
-            extent,
         });
     }
 
-    let score = compute_score(&results);
     CheckResult {
-        band: band(score).to_string(),
         results,
-        score,
         blocked,
         files_checked,
     }

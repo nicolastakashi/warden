@@ -47,32 +47,36 @@ environments. The engine does not, and cannot, supply intent.
   judgment." **Not** "finds violations."
 - **Strong use case = runtime gate on nitid rules** (`import anthropic`, "don't
   touch file X", "no `os.getenv` here"). Determinism + change-scoping + clear
-  author intent align; low false-positive cost. This is the killer app, not the
-  score.
-- **Be humble about the CI score.** It's a trend signal over a candidate
-  population, not a verdict: it's not diff-scoped (counts pre-existing
-  violations) and each "fail" is a candidate, not a confirmed defect. "Score 50"
-  is not precision.
+  author intent align; low false-positive cost. This is the killer app.
+- **The CI gate is a candidate population, not a verdict.** It's not diff-scoped
+  (it counts pre-existing violations) and each "fail" is a candidate ("matches a
+  written convention"), not a confirmed defect. The weighted 0–100 score was
+  *removed* for over-claiming exactly this — `warden check` now just reports
+  which rules fired plus blocking/warning/audit counts (see `decisions.md §10`).
 - **Rule quality dominates, not the engine.** On the real repo, the precise
   env-gating rule produced a useful list; the logging rule mis-scoped onto
   `schema_migration/` (an operational job under `render_utils/`, not rendering)
   and produced noise. `paths`, warn-first calibration, and the discovery skill's
   "confirm intent with a human" are load-bearing for exactly this reason.
 
-## What to build next (in priority order)
+## What to build next
 
-1. **Diff-scoping for the CI gate.** Today it scans whole files (see
-   `design.md §5` "Known limitation"). Focusing on the *changed* lines of a PR is
-   where the gate would actually change behavior and stop punishing pre-existing
-   debt. This raises real value more than anything else.
-2. **Lean into the runtime gate** — it's the use case where the engine's
-   guarantees and the user's value line up. More adapters, sharper rules.
-3. ~~The `query` match-type (`.scm` rules-as-data).~~ **Done** — `match.type:
-   query` embeds a tree-sitter query in a rule (Python/Go/Rust), so structural
-   checks generalize beyond imports with no engine code (e.g.
-   `rules/no-unwrap-in-src.yaml`). It confirms Warden isn't import-only. Precision
-   of *what* you match still matters less than *whether you're scoped to new
-   code*, so (1) remains the top priority.
+The forward plan lives in [`roadmap.md`](roadmap.md) (strategy + execution).
+The short version, post-slimming (runtime-first):
+
+1. **Runtime gate, first.** It's where the engine's guarantees and the user's
+   value line up, and it's now the product's focus. Close the authoring loop
+   (dry-run a rule before trusting it), collapse the hero-path (install → rule →
+   hook in ~3 commands), and add a second adapter beyond Claude Code (the
+   agent-agnostic promise). Deepen the AST matchers (`query` + more languages) —
+   the sharp rules they express are the runtime killer app.
+2. **CI chapter — later.** When the runtime gate is polished and adopted, turn
+   to the CI gate: **diff-scoping first** (flag only a PR's *changed* lines, not
+   pre-existing debt — the change that would make CI trustworthy), then a
+   diff-scoped score if warranted.
+3. ~~The `query` match-type (`.scm` rules-as-data).~~ **Done** (e.g.
+   `rules/no-unwrap-in-src.yaml`). ~~The `llm` matcher / weighted score / `weight`
+   / `extent`.~~ **Removed** — runtime-first slimming (`decisions.md §10`).
 
 ## Repo state at handoff
 

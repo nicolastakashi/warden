@@ -11,8 +11,7 @@ use crate::lang::{QUERY_LANGUAGES, compile_query, lang_by_name};
 
 pub const SCOPES: [&str; 2] = ["ci", "runtime"];
 pub const ENFORCEMENTS: [&str; 3] = ["block", "warn", "audit"];
-pub const WEIGHTS: [i64; 3] = [1, 2, 4];
-pub const MATCH_TYPES: [&str; 4] = ["pattern", "structural", "llm", "query"];
+pub const MATCH_TYPES: [&str; 3] = ["pattern", "structural", "query"];
 
 /// Raised when a rule file fails validation.
 #[derive(Debug, Clone)]
@@ -44,11 +43,6 @@ pub struct StructuralMatch {
 }
 
 #[derive(Debug, Clone)]
-pub struct LlmMatch {
-    pub prompt: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct QueryMatch {
     /// The one language this query's node kinds belong to. Tree-sitter queries
     /// are grammar-specific, so a query rule targets exactly one language;
@@ -63,7 +57,6 @@ pub struct QueryMatch {
 pub enum Match {
     Pattern(PatternMatch),
     Structural(StructuralMatch),
-    Llm(LlmMatch),
     Query(QueryMatch),
 }
 
@@ -74,9 +67,8 @@ pub struct Rule {
     pub why: String,
     pub scope: Vec<String>,
     pub enforcement: String,
-    pub weight: i64,
     pub matcher: Match,
-    /// "pattern" | "structural" | "llm"
+    /// "pattern" | "structural" | "query"
     pub match_type: String,
     /// Optional path scope. Empty = applies to every file (the default).
     pub paths: Vec<String>,
@@ -193,21 +185,7 @@ fn build_match(data: &Value, whence: &str) -> Result<(String, Match), RuleError>
                 .map_err(|e| RuleError(format!("{whence}.match.query is invalid: {e}")))?;
             Ok((mtype, Match::Query(QueryMatch { language, query })))
         }
-        _ => {
-            // llm
-            let raw = require(data, "prompt", &format!("{whence}.match"))?;
-            match raw.as_str() {
-                Some(p) if !p.trim().is_empty() => Ok((
-                    mtype,
-                    Match::Llm(LlmMatch {
-                        prompt: p.to_string(),
-                    }),
-                )),
-                _ => Err(RuleError(format!(
-                    "{whence}.match.prompt must be a non-empty string"
-                ))),
-            }
-        }
+        _ => unreachable!("match type validated against MATCH_TYPES above"),
     }
 }
 
@@ -259,11 +237,6 @@ pub fn build_rule(data: &Value, whence: &str) -> Result<Rule, RuleError> {
         })?
         .to_string();
 
-    let weight = require(data, "weight", whence)?
-        .as_i64()
-        .filter(|w| WEIGHTS.contains(w))
-        .ok_or_else(|| RuleError(format!("{whence}: weight invalid; one of {WEIGHTS:?}")))?;
-
     let (match_type, matcher) = build_match(require(data, "match", whence)?, whence)?;
 
     // Optional path scope (file-path globs). Absent/null -> applies to all files.
@@ -291,7 +264,6 @@ pub fn build_rule(data: &Value, whence: &str) -> Result<Rule, RuleError> {
         "why",
         "scope",
         "enforcement",
-        "weight",
         "match",
         "paths",
     ];
@@ -316,7 +288,6 @@ pub fn build_rule(data: &Value, whence: &str) -> Result<Rule, RuleError> {
         why,
         scope,
         enforcement,
-        weight,
         matcher,
         match_type,
         paths,

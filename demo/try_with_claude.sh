@@ -47,7 +47,6 @@ description: "Code under app/ must not import the legacy module"
 why: "The legacy module is being retired; new code must not depend on it."
 scope: [runtime]
 enforcement: block
-weight: 4
 match:
   type: structural
   forbidden:

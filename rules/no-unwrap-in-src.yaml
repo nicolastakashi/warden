@@ -4,7 +4,6 @@ why: "A bare .unwrap() panics on the error path, turning a recoverable condition
 
 scope: [ci, runtime]
 enforcement: block
-weight: 2
 
 # Production code only. Tests legitimately use .unwrap() to assert.
 # Two edges: `src/**` matches when check runs at the repo root (top-level src/),

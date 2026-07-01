@@ -4,7 +4,6 @@ why: "AGENTS.md: the agent-agnostic core is the whole point — the engine only 
 
 scope: [ci, runtime]
 enforcement: block
-weight: 4
 
 # Core modules only. Deliberately excludes main.rs (the binary, which wires the
 # adapter) and src/adapters/ itself (it *is* the Claude surface).

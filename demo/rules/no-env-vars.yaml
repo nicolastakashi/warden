@@ -4,7 +4,6 @@ why: "Direct env access bypasses the flag system and causes config drift."
 
 scope: [ci, runtime]
 enforcement: block
-weight: 4
 
 match:
   type: pattern

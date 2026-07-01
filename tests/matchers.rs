@@ -1,11 +1,9 @@
-//! Ported from tests/test_matchers.py — pattern, structural, llm, path scoping.
+//! Ported from tests/test_matchers.py — pattern, structural, query, path scoping.
 //! Adds a Go case to prove the structural backend is multi-language.
 
-use std::cell::RefCell;
 use std::collections::HashSet;
 
 use warden::matchers::base::{CodeUnit, units_for_rule};
-use warden::matchers::llm::{ClaudeRunner, MAX_CHARS, ProcOutput, match_llm};
 use warden::matchers::pattern::match_pattern;
 use warden::matchers::query::match_query;
 use warden::matchers::structural::match_structural;
@@ -27,7 +25,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: pattern
   patterns: ['os\.getenv', 'os\.environ']
@@ -49,7 +46,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: pattern
   patterns: ['os\.getenv']
@@ -68,7 +64,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: structural
   forbidden:
@@ -170,7 +165,7 @@ fn structural_glob_top_level_vs_nested_package() {
     // a top-level import of `foo` — a fail-open footgun. Lock the behavior.
     fn forbid_to(to: &str) -> Rule {
         rule_from(&format!(
-            "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nweight: 4\nmatch:\n  type: structural\n  forbidden:\n    - from: \"app/**\"\n      to: \"{to}\"\n"
+            "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nmatch:\n  type: structural\n  forbidden:\n    - from: \"app/**\"\n      to: \"{to}\"\n"
         ))
     }
 
@@ -224,7 +219,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: structural
   forbidden:
@@ -242,48 +236,6 @@ match:
     );
 }
 
-// --- llm (no live claude — fake the runner) ---------------------------------
-
-struct FakeClaude {
-    which: bool,
-    code: i32,
-    stdout: String,
-    panic_on_run: bool,
-    captured: RefCell<Option<(String, String)>>,
-}
-
-impl FakeClaude {
-    fn ok(result_text: &str) -> Self {
-        let envelope = serde_json::json!({
-            "type": "result", "subtype": "success", "is_error": false, "result": result_text
-        });
-        FakeClaude {
-            which: true,
-            code: 0,
-            stdout: envelope.to_string(),
-            panic_on_run: false,
-            captured: RefCell::new(None),
-        }
-    }
-}
-
-impl ClaudeRunner for FakeClaude {
-    fn which(&self) -> bool {
-        self.which
-    }
-    fn run(&self, prompt: &str, model: &str) -> std::io::Result<ProcOutput> {
-        if self.panic_on_run {
-            panic!("claude must not be invoked");
-        }
-        *self.captured.borrow_mut() = Some((prompt.to_string(), model.to_string()));
-        Ok(ProcOutput {
-            code: self.code,
-            stdout: self.stdout.clone(),
-            stderr: String::new(),
-        })
-    }
-}
-
 // --- query (rules-as-data via tree-sitter) ----------------------------------
 
 fn no_unwrap_rule() -> Rule {
@@ -294,7 +246,6 @@ description: no unwrap
 why: w
 scope: [ci]
 enforcement: block
-weight: 2
 match:
   type: query
   language: rust
@@ -351,7 +302,7 @@ fn query_survives_syntax_error() {
 fn query_malformed_scm_fails_validation() {
     // A bad query must fail when the rule loads, not silently at runtime.
     let value: serde_norway::Value = serde_norway::from_str(
-        "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nweight: 2\n\
+        "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\n\
          match:\n  type: query\n  language: rust\n  query: \"(this is not valid scm\"\n",
     )
     .expect("YAML parses");
@@ -362,118 +313,12 @@ fn query_malformed_scm_fails_validation() {
 #[test]
 fn query_unknown_language_fails_validation() {
     let value: serde_norway::Value = serde_norway::from_str(
-        "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nweight: 2\n\
+        "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\n\
          match:\n  type: query\n  language: cobol\n  query: \"(identifier) @x\"\n",
     )
     .expect("YAML parses");
     let err = build_rule(&value, "t").expect_err("unknown language must be rejected");
     assert!(err.0.contains("unsupported"), "got: {}", err.0);
-}
-
-fn llm_rule() -> Rule {
-    rule_from(
-        r#"
-id: r
-description: d
-why: w
-scope: [ci]
-enforcement: block
-weight: 4
-match:
-  type: llm
-  prompt: flag PII in logs
-"#,
-    )
-}
-
-#[test]
-fn llm_success_maps_verdict_to_violations() {
-    let verdict = r#"{"violated": true, "locations": [{"file": "a.py", "line": 7, "reason": "logs an email"}]}"#;
-    let fake = FakeClaude::ok(verdict);
-    let v = match_llm(
-        &[CodeUnit::new("a.py", "log(email)\n")],
-        &llm_rule(),
-        true,
-        "m",
-        &fake,
-    );
-    assert_eq!(v.len(), 1);
-    assert_eq!(v[0].location.file, "a.py");
-    assert_eq!(v[0].location.line, 7);
-    assert!(v[0].reason.contains("email"));
-    let captured = fake.captured.borrow();
-    let (prompt, model) = captured.as_ref().expect("claude was invoked");
-    assert!(!prompt.is_empty());
-    assert_eq!(model, "m");
-}
-
-#[test]
-fn llm_not_violated_returns_empty() {
-    let fake = FakeClaude::ok(r#"{"violated": false, "locations": []}"#);
-    assert!(
-        match_llm(
-            &[CodeUnit::new("a.py", "x = 1\n")],
-            &llm_rule(),
-            true,
-            "m",
-            &fake
-        )
-        .is_empty()
-    );
-}
-
-#[test]
-fn llm_disabled_skips_without_calling() {
-    let fake = FakeClaude {
-        which: true,
-        code: 0,
-        stdout: String::new(),
-        panic_on_run: true,
-        captured: RefCell::new(None),
-    };
-    assert!(
-        match_llm(
-            &[CodeUnit::new("a.py", "x")],
-            &llm_rule(),
-            false,
-            "m",
-            &fake
-        )
-        .is_empty()
-    );
-}
-
-#[test]
-fn llm_malformed_result_is_inconclusive_pass() {
-    let fake = FakeClaude::ok("not json at all");
-    assert!(match_llm(&[CodeUnit::new("a.py", "x")], &llm_rule(), true, "m", &fake).is_empty());
-}
-
-#[test]
-fn llm_cli_error_is_inconclusive_pass() {
-    let mut fake = FakeClaude::ok("");
-    fake.code = 1;
-    assert!(match_llm(&[CodeUnit::new("a.py", "x")], &llm_rule(), true, "m", &fake).is_empty());
-}
-
-#[test]
-fn llm_missing_binary_is_inconclusive_pass() {
-    let mut fake = FakeClaude::ok("");
-    fake.which = false;
-    assert!(match_llm(&[CodeUnit::new("a.py", "x")], &llm_rule(), true, "m", &fake).is_empty());
-}
-
-#[test]
-fn llm_oversized_input_is_skipped_without_calling() {
-    let fake = FakeClaude {
-        which: true,
-        code: 0,
-        stdout: String::new(),
-        panic_on_run: true,
-        captured: RefCell::new(None),
-    };
-    let huge = CodeUnit::new("big.py", "x".repeat(MAX_CHARS + 1));
-    assert!(match_llm(&[huge], &llm_rule(), true, "m", &fake).is_empty());
 }
 
 // --- units_for_rule (path scoping) ------------------------------------------
@@ -488,7 +333,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 match:
   type: pattern
   patterns: [x]
@@ -511,7 +355,6 @@ description: d
 why: w
 scope: [ci]
 enforcement: block
-weight: 4
 paths: ["src/billing/**"]
 match:
   type: pattern

@@ -4,7 +4,6 @@ why: "Cross-module coupling makes billing depend on notification internals."
 
 scope: [ci]
 enforcement: block
-weight: 4
 
 match:
   type: structural
