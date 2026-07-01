@@ -64,11 +64,10 @@ pub fn import_candidates(src: &str, lang: Lang) -> Option<Vec<ImportRef>> {
         return None;
     }
 
-    let bytes = src.as_bytes();
     let mut out: Vec<ImportRef> = Vec::new();
     match lang {
-        Lang::Python => walk_python(root, bytes, &mut out),
-        Lang::Go => walk_go(root, bytes, &mut out),
+        Lang::Python => walk_python(root, src, &mut out),
+        Lang::Go => walk_go(root, src, &mut out),
     }
     Some(out)
 }
@@ -78,46 +77,44 @@ fn named_children<'a>(node: Node<'a>) -> Vec<Node<'a>> {
     node.named_children(&mut cursor).collect()
 }
 
-fn text(node: Node, src: &[u8]) -> Option<String> {
-    node.utf8_text(src).ok().map(|s| s.to_string())
+fn text(node: Node, src: &str) -> Option<String> {
+    node.utf8_text(src.as_bytes()).ok().map(|s| s.to_string())
 }
 
-/// The node's first source line, trimmed — a display-ready snippet from
-/// tree-sitter itself (no re-slicing the file by a possibly-divergent index).
-fn line_snippet(node: Node, src: &[u8]) -> String {
-    node.utf8_text(src)
-        .ok()
-        .and_then(|t| t.lines().next())
-        .unwrap_or("")
-        .trim()
-        .to_string()
+/// A node's 1-based line plus the source line it sits on (trimmed). Both derive
+/// from the node's own row, so they always agree — and because each import
+/// candidate is located at *its* node, a name inside a parenthesized multi-line
+/// import points at that name's line, not the `from` line.
+fn locate(node: Node, src: &str) -> (usize, String) {
+    let row = node.start_position().row;
+    let snippet = src.lines().nth(row).unwrap_or("").trim().to_string();
+    (row + 1, snippet)
 }
 
-fn walk_python(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
+fn push_import(out: &mut Vec<ImportRef>, path: String, at: Node, src: &str) {
+    let (line, snippet) = locate(at, src);
+    out.push(ImportRef {
+        path,
+        line,
+        snippet,
+    });
+}
+
+fn walk_python(node: Node, src: &str, out: &mut Vec<ImportRef>) {
     match node.kind() {
         "import_statement" => {
-            let line = node.start_position().row + 1;
-            let snippet = line_snippet(node, src);
             for child in named_children(node) {
                 match child.kind() {
                     "dotted_name" => {
                         if let Some(t) = text(child, src) {
-                            out.push(ImportRef {
-                                path: dots_to_slash(&t),
-                                line,
-                                snippet: snippet.clone(),
-                            });
+                            push_import(out, dots_to_slash(&t), child, src);
                         }
                     }
                     "aliased_import" => {
                         if let Some(name) = child.child_by_field_name("name")
                             && let Some(t) = text(name, src)
                         {
-                            out.push(ImportRef {
-                                path: dots_to_slash(&t),
-                                line,
-                                snippet: snippet.clone(),
-                            });
+                            push_import(out, dots_to_slash(&t), name, src);
                         }
                     }
                     _ => {}
@@ -126,20 +123,16 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
             return;
         }
         "import_from_statement" => {
-            let line = node.start_position().row + 1;
-            let snippet = line_snippet(node, src);
             let module = node.child_by_field_name("module_name");
             // Relative imports (`from . import x`) are out of scope — skip.
             if let Some(m) = module
                 && m.kind() != "relative_import"
                 && let Some(base) = text(m, src).map(|t| dots_to_slash(&t))
             {
-                out.push(ImportRef {
-                    path: base.clone(),
-                    line,
-                    snippet: snippet.clone(),
-                });
-                // imported names: `from base import a, b as c`
+                // Base candidate, located at the module name.
+                push_import(out, base.clone(), m, src);
+                // Imported names, each located at its OWN node — so a forbidden
+                // name in a multi-line `from a import ( … )` points at that name.
                 let mut cursor = node.walk();
                 for child in node.children_by_field_name("name", &mut cursor) {
                     let name = match child.kind() {
@@ -150,21 +143,13 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
                         _ => None,
                     };
                     if let Some(name) = name {
-                        out.push(ImportRef {
-                            path: format!("{base}/{}", dots_to_slash(&name)),
-                            line,
-                            snippet: snippet.clone(),
-                        });
+                        push_import(out, format!("{base}/{}", dots_to_slash(&name)), child, src);
                     }
                 }
                 // `from base import *`
                 for child in named_children(node) {
                     if child.kind() == "wildcard_import" {
-                        out.push(ImportRef {
-                            path: format!("{base}/*"),
-                            line,
-                            snippet: snippet.clone(),
-                        });
+                        push_import(out, format!("{base}/*"), child, src);
                     }
                 }
             }
@@ -177,18 +162,13 @@ fn walk_python(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
     }
 }
 
-fn walk_go(node: Node, src: &[u8], out: &mut Vec<ImportRef>) {
+fn walk_go(node: Node, src: &str, out: &mut Vec<ImportRef>) {
     if node.kind() == "import_spec" {
-        let line = node.start_position().row + 1;
         if let Some(path) = node.child_by_field_name("path")
             && let Some(t) = text(path, src)
         {
             let trimmed = t.trim_matches('"').trim_matches('`');
-            out.push(ImportRef {
-                path: trimmed.to_string(),
-                line,
-                snippet: line_snippet(node, src),
-            });
+            push_import(out, trimmed.to_string(), node, src);
         }
         return;
     }

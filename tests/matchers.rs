@@ -207,6 +207,40 @@ fn structural_glob_top_level_vs_nested_package() {
     );
 }
 
+#[test]
+fn structural_multiline_import_points_at_the_offending_name() {
+    // In a parenthesized multi-line import, the forbidden name is on line 3.
+    // The violation must point there with a snippet naming it — not at the
+    // `from` line with the opening `from a import (` fragment.
+    let unit = CodeUnit::new(
+        "app/service.py",
+        "from a import (\n    b,\n    forbidden,\n)\n",
+    );
+    let rule = rule_from(
+        r#"
+id: r
+description: d
+why: w
+scope: [ci]
+enforcement: block
+weight: 4
+match:
+  type: structural
+  forbidden:
+    - from: "app/**"
+      to: "a/forbidden"
+"#,
+    );
+    let v = match_structural(&[unit], &rule);
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].location.line, 3, "points at the forbidden name's line");
+    assert!(
+        v[0].snippet.contains("forbidden"),
+        "snippet names the offending symbol, got {:?}",
+        v[0].snippet
+    );
+}
+
 // --- llm (no live claude — fake the runner) ---------------------------------
 
 struct FakeClaude {

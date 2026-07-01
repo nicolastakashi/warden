@@ -23,6 +23,7 @@ pub fn to_decision_record(check: &CheckResult) -> Value {
                 "locations": r.violations.iter().map(|v| json!({
                     "file": v.location.file,
                     "line": v.location.line,
+                    "snippet": v.snippet,
                 })).collect::<Vec<_>>(),
             })
         })
