@@ -56,6 +56,17 @@ cargo install --path .
 
 **Runtime gate** (`runtime_gate.rs`): filter to `scope` ∋ `runtime`, read **only** `enforcement`, and a rule whose `paths` don't match the action's path doesn't apply. **Blocking is via JSON `permissionDecision: "deny"` and exit 0** — exit code 1 does NOT block in Claude Code. All of that lives in `adapters/claude_code.rs`; don't rely on exit codes to block.
 
+## Code conventions (the judgment calls the gate can't enforce)
+
+Some invariants are sharp enough to be **enforced by warden's own rules** (dogfooded in `rules/`): no `.unwrap()`/`.expect()` (`no-unwrap-in-src`, `no-expect-in-src`), no `unsafe` (`no-unsafe-in-src`), no `dbg!` (`no-dbg-in-src`), and the core never importing the adapter (`core-stays-agent-agnostic`). Don't restate those here — the gate has them. The rest are judgment calls a matcher can't decide, so they live as prose:
+
+- **Fail-open, never `panic!` on the gate path.** A gate wired as a hook must not crash the agent it guards. Propagate errors with `?`, return an empty/allow result on bad input, and warn to stderr — never `unwrap`/`expect`/`panic!` in `src/` (the panic-safety rules enforce the mechanism; this is the principle).
+- **New `match.type`s validate their payload at load, not silently at match time.** `query` compiles its `.scm` in `build_rule` (a malformed query fails `warden validate`); `pattern`, by contrast, still drops an invalid regex silently at match time. Prefer the `query` model for anything new — fail loud at load.
+- **Prefer `&[CodeUnit]`/references over cloning file contents** in matchers and hot paths. `units_for_rule` currently clones; at repo scale that's real cost. Don't add more content clones.
+- **User-facing output goes through `report/` or `main`; warnings via `eprintln!`.** Don't scatter `println!` across the core.
+- **Error messages teach the next step** (name the file/flag/fix), not just the state.
+- **Path-scoped rules list both `src/**` and `**/src/**`** until R6 lands: `**/src/**` needs a segment before `src`, so it alone misses a repo-root relative target (the glob footgun; `warden validate --against <path>` surfaces it as `⚠ 0 files`).
+
 ## Rules live in the consuming project — the engine ships none
 
 There are **no bundled default rules**. The CLI resolves the rules dir as `--rules <dir>` → `$CLAUDE_PROJECT_DIR/rules` → `./rules`, and errors if none is found. This repo dogfoods itself: its own policy is in **`rules/`** at the root (the `core-stays-agent-agnostic` and `no-direct-anthropic-api` rules, enforced on `src/`). The runtime hook that runs them is wired locally (for Claude Code, a `.claude/settings.json` calling `warden gate` — gitignored, since the wiring is per-agent; the shared artifact is the policy in `rules/`). The `demo/` fake app plays the role of a separate consuming project with its own `demo/rules/` (`demo/before/` is messy, `demo/after/` is clean). `examples/` holds minimal fixtures used by the gate tests. A real project keeps its own `rules/` at its root; the runtime hook finds it via `${CLAUDE_PROJECT_DIR}`.
