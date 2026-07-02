@@ -268,7 +268,10 @@ fn coverage_reports_scanned_and_hits_per_rule() {
             .find(|c| c.rule_id == id)
             .unwrap_or_else(|| panic!("coverage for {id}"))
     };
-    assert!(by("hits").scanned > 0 && by("hits").hits == 1, "one os.getenv hit");
+    assert!(
+        by("hits").scanned > 0 && by("hits").hits == 1,
+        "one os.getenv hit"
+    );
     assert_eq!(by("dead").scanned, 0, "paths scope excludes every file");
     assert!(
         by("clean").scanned > 0 && by("clean").hits == 0,

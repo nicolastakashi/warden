@@ -25,7 +25,10 @@ fn validate_against_reports_coverage_and_is_advisory() {
         .expect("run warden");
     assert!(out.status.success(), "advisory: exit 0");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("coverage vs"), "prints a coverage block:\n{stdout}");
+    assert!(
+        stdout.contains("coverage vs"),
+        "prints a coverage block:\n{stdout}"
+    );
     assert!(stdout.contains("hits"), "prints per-rule hits:\n{stdout}");
 }
 
@@ -97,7 +100,10 @@ fn validate_against_empty_target_is_not_a_strict_failure() {
         "empty target + --strict must exit 0 (bad path, not a dead rule)"
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("no files found"), "explains the empty target:\n{stdout}");
+    assert!(
+        stdout.contains("no files found"),
+        "explains the empty target:\n{stdout}"
+    );
 
     let _ = std::fs::remove_dir_all(&empty);
 }
@@ -114,5 +120,8 @@ fn validate_without_against_is_unchanged() {
     assert!(out.status.success());
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("rule(s) valid"));
-    assert!(!stdout.contains("coverage vs"), "no coverage block without --against");
+    assert!(
+        !stdout.contains("coverage vs"),
+        "no coverage block without --against"
+    );
 }
