@@ -192,5 +192,8 @@ arquivos/nós" (0 files *or* 0 nodes), but we deliberately split those:
 
 We can't cheaply tell "clean code" from "rule doesn't match what you think", so
 the `0 hits` line stays informational and points at `warden test` to inspect.
-`--strict` makes only the 0-files case exit 1 (for CI); the default is advisory.
-Engine is `ci_gate::coverage` (gathers files once), reused from `run_rule` (R4).
+`--strict` makes only a *genuine* dead rule exit 1 (0 files while the target
+*has* files); an empty/mistyped target is a bad path, not a dead rule, so it
+prints "no files found" and exits 0 like `warden check` — it never trips
+`--strict`. The default (no `--strict`) is advisory. Engine is
+`ci_gate::coverage` (gathers files once), reused from `run_rule` (R4).

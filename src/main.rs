@@ -196,8 +196,13 @@ fn main() -> ExitCode {
                         println!("\n{}", render_coverage(&report, &target));
                         // A rule scoped to 0 files can never fire — with --strict
                         // that's a failure (catch a dead rule in CI); otherwise
-                        // it's advisory.
-                        if strict && report.rules.iter().any(|c| c.scanned == 0) {
+                        // it's advisory. An empty target (total_files == 0) is a
+                        // bad path, not a dead rule — render_coverage already says
+                        // so, so it must NOT trip --strict (exit 0, like `check`).
+                        if strict
+                            && report.total_files > 0
+                            && report.rules.iter().any(|c| c.scanned == 0)
+                        {
                             return ExitCode::FAILURE;
                         }
                     }

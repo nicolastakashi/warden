@@ -75,6 +75,34 @@ fn validate_against_strict_exits_1_on_a_dead_rule() {
 }
 
 #[test]
+fn validate_against_empty_target_is_not_a_strict_failure() {
+    // An empty/mistyped --against path is a bad target, not a dead rule:
+    // render says "no files found" and --strict must NOT turn that into exit 1
+    // (that would contradict the message — the finding this test locks).
+    let empty = std::env::temp_dir().join("warden_r2_empty_target");
+    let _ = std::fs::remove_dir_all(&empty);
+    std::fs::create_dir_all(&empty).unwrap();
+
+    let out = warden()
+        .arg("validate")
+        .arg("--rules")
+        .arg(root().join("demo").join("rules"))
+        .arg("--against")
+        .arg(&empty)
+        .arg("--strict")
+        .output()
+        .expect("run warden");
+    assert!(
+        out.status.success(),
+        "empty target + --strict must exit 0 (bad path, not a dead rule)"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("no files found"), "explains the empty target:\n{stdout}");
+
+    let _ = std::fs::remove_dir_all(&empty);
+}
+
+#[test]
 fn validate_without_against_is_unchanged() {
     // No --against: plain shape validation, exit 0, no coverage block.
     let out = warden()
