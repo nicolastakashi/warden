@@ -6,11 +6,9 @@ scope: [ci, runtime]
 enforcement: block
 
 # Production code only. Tests legitimately use .unwrap() to assert.
-# Two edges: `src/**` matches when check runs at the repo root (top-level src/),
-# `**/src/**` when src/ sits deeper — the leading `**/` needs a segment before
-# `src`, so it alone would miss the top-level case (the documented glob footgun).
+# A leading `**/` matches at any depth including the repo root (R6), so this one
+# glob covers `warden check src` (relative) and the hook's absolute path.
 paths:
-  - "src/**"
   - "**/src/**"
 
 match:
