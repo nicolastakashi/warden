@@ -2,16 +2,16 @@
 name: warden-rule-author
 description: >-
   Author Warden rules — the rules/*.yaml files the `warden` CLI enforces
-  as a CI gate (scored) and a runtime gate (block/allow on a proposed agent action).
-  Use this whenever someone wants to add, write, create, or edit a warden policy
-  rule, or turn a coding convention or a "ban/avoid/forbid/require/warn on X"
-  guideline into an enforceable rule. Trigger even when the intent is described
-  without naming the rule file — e.g. "block direct env-var access", "warn when
-  we log PII", "forbid billing from importing notifications", "flag TODOs in
-  prod code". Also use when asked how the rule schema works (id, scope,
-  enforcement, weight, or the pattern / structural / query / llm match types). Always
+  as a CI gate (scans a path, blocks on `block` rules) and a runtime gate
+  (block/allow on a proposed agent action). Use this whenever someone wants to
+  add, write, create, or edit a warden policy rule, or turn a coding convention
+  or a "ban/avoid/forbid/require/warn on X" guideline into an enforceable rule.
+  Trigger even when the intent is described without naming the rule file — e.g.
+  "block direct env-var access", "forbid billing from importing notifications",
+  "no .unwrap() in src". Also use when asked how the rule schema works (id,
+  scope, enforcement, or the pattern / structural / query match types). Always
   finish by running `warden validate` so the rule is proven valid.
-compatibility: "Requires the warden CLI; llm-rule dry-runs also need the claude CLI."
+compatibility: "Requires the warden CLI."
 ---
 
 # Authoring Warden rules
@@ -26,7 +26,7 @@ The schema is **closed** — there are no fields beyond the ones below, and
 single source of truth, kept small so rules stay readable and reviewable. Resist
 inventing fields.
 
-## The schema (every field is required)
+## The schema (every field is required, except `paths`)
 
 ```yaml
 id: no-env-vars                  # unique, kebab-case
@@ -35,10 +35,9 @@ why: "Direct env access bypasses the flag system and causes config drift."
 
 scope: [ci]                      # subset of: ci, runtime
 enforcement: block               # block | warn | audit
-weight: 4                        # 1 | 2 | 4   (CI scorer only)
 
 match:                           # exactly one type
-  type: pattern                  # pattern | structural | query | llm
+  type: pattern                  # pattern | structural | query
   # ...type-specific fields (see below)
 ```
 
@@ -46,64 +45,56 @@ match:                           # exactly one type
   (`<id>.yaml`) so rules are easy to find.
 - **description** — the one line developers see in output as `file:line —
   description`. Make it an actionable instruction, not a restatement of the id.
-- **why** — the rationale. It is shown to humans *and* passed to the `llm`
-  matcher as context, so write it to explain the actual risk.
+- **why** — the rationale, shown to humans in the block reason. Explain the
+  actual risk so the message teaches the fix.
 
 ## scope — which consumer evaluates the rule
 
-- `ci` — the CI gate checks a diff/path, scores it 0–100, and can block.
+- `ci` — the CI gate scans a path, reports which rules fired (`file:line →
+  snippet`) plus counts, and exits 1 if any `block` rule fired.
 - `runtime` — the runtime gate checks **one** proposed agent action
   (e.g. a Write/Edit/Bash) via a hook and returns block/allow. It reads only
-  `enforcement`; it ignores `weight` and the score (meaningless for one action).
+  `enforcement`.
 - A rule may be in both (e.g. the critical env-var rule). Put it in `runtime`
   only when it makes sense to judge a single action against it — `pattern` and
-  `llm` do; a cross-file `structural` import rule usually does not.
+  `query` do; a cross-file `structural` import rule usually does not.
 
 ## enforcement — what a violation does
 
 - `block` — fails the gate. CI exits 1; runtime returns `deny`. Use for hard
   rules you want to stop.
-- `warn` — never blocks, but **counts against the CI score** (lowers it).
-  Runtime surfaces it but still allows. Use for "should fix".
-- `audit` — logged only: excluded from the score, never blocks. Use to observe
-  adoption of a new convention without penalizing anyone yet.
-
-## weight — 1 | 2 | 4 (CI score only)
-
-The CI score is a weighted ratio of rules that passed:
-
-```
-score = Σ(weight of passed scored rules) / Σ(weight of scored rules) × 100
-```
-
-Only `block` and `warn` rules are scored; `audit` is excluded. Weight sets how
-much a failure hurts the score: **4** = critical, **2** = moderate, **1** =
-minor. The runtime gate ignores weight entirely.
+- `warn` — reported but never blocks (CI notes it; runtime surfaces it and still
+  allows). Use for "should fix".
+- `audit` — logged only, never blocks. Use to observe adoption of a new
+  convention without penalizing anyone yet.
 
 ## paths — optional, scope the rule to a subtree
 
 ```yaml
-paths: ["**/platform_features/**", "src/api/**"]   # optional; file-path globs
+paths: ["**/platform_features/**", "**/src/api/**"]   # optional; file-path globs
 ```
 
 By default a rule applies to every checked file. Add `paths` (a list of
 file-path globs, `fnmatch`, `*` crosses `/`) to restrict it to matching files —
-this is what lets a `pattern` or `llm` rule target a subtree, the way
-`structural`'s `from` glob already does. Use it when a convention only holds in
-certain paths: e.g. "prefer feature flags over env access **in feature/render
-code**" (boundary config legitimately reads env), or "no logging above debug
-**in rendering paths**". In the CI gate `extent` is then relative to the scoped
-files; in the runtime gate, a rule whose `paths` don't match the action's path
-simply doesn't apply. This is the one optional field — everything else is
-required, and the schema is otherwise closed.
+this is what lets a `pattern` rule target a subtree, the way `structural`'s
+`from` glob already does. Use it when a convention only holds in certain paths:
+e.g. "prefer feature flags over env access **in feature/render code**" (boundary
+config legitimately reads env). In the runtime gate, a rule whose `paths` don't
+match the action's path simply doesn't apply. This is the one optional field —
+everything else is required, and the schema is otherwise closed.
 
-## The four match types — pick the simplest that captures the intent
+A **leading `**/` matches at any depth, including the repo root** (`**/src/**`
+matches both a top-level `src/…` and a nested `a/src/…`), so a single glob
+usually suffices. `warden validate --against <path>` reports a `paths` glob that
+matches no files as `⚠ 0 files` — dry-run it to catch a dead scope.
 
-Reach for the cheapest layer that works: `pattern`, `structural`, and `query`
-are deterministic, fast, and run offline; `llm` costs a Claude call. Use `llm`
-only when the rule genuinely needs judgment a regex or the AST can't express.
+## The three match types — pick the simplest that captures the intent
 
-### pattern — regex over changed lines (language-agnostic)
+All three are deterministic, fast, and run offline. Reach for the cheapest layer
+that works: literal/syntactic → `pattern`; an import boundary → `structural`; a
+structural check that isn't an import → `query`.
+
+### pattern — regex over each line (language-agnostic)
 
 ```yaml
 match:
@@ -112,9 +103,10 @@ match:
 ```
 
 Any line matching any pattern is a violation, reported at that line. Patterns
-are Python regular expressions — escape literal dots (`os\.getenv`). The list is
-flat and OR-combined; there are no per-language maps. Best for literal or
-syntactic signals (a banned call, a forbidden token, a TODO marker).
+are regular expressions — escape literal dots (`os\.getenv`). The list is flat
+and OR-combined. Best for literal or syntactic signals (a banned call, a
+forbidden token, a TODO marker). Note: an invalid regex is skipped silently at
+match time, so dry-run with `warden test` to confirm it fires.
 
 ### structural — forbidden imports via tree-sitter (multi-language)
 
@@ -122,40 +114,37 @@ syntactic signals (a banned call, a forbidden token, a TODO marker).
 match:
   type: structural
   forbidden:
-    - from: "src/billing/**"
-      to: "src/notifications/**"
+    - from: "**/src/billing/**"
+      to: "**/src/notifications/**"
 ```
 
 For architectural boundaries. `from` and `to` are **file-path globs** (matched
-with `fnmatch`, where `*` crosses `/`, so `src/notifications/**` matches
-`src/notifications/email`). A file whose path matches `from` may not import a
-module whose path matches `to`. The language is inferred from the file extension
-(Python and Go today); files in unsupported languages, or that don't parse, are
-skipped. List multiple edges under `forbidden`.
+with `fnmatch`, where `*` crosses `/`, and a leading `**/` matches at any depth
+including the root). A file whose path matches `from` may not import a module
+whose path matches `to`. The language is inferred from the file extension
+(Python and Go today; Rust has no import walker yet). Files in unsupported
+languages, or that don't parse, are skipped. List multiple edges under
+`forbidden`.
 
-Globs are matched against the path **as the warden sees it** — relative to
-whatever you point `check` at. `services/payments/**` matches
-`services/payments/charge.py` only when the path starts there. If you can't rely
-on where `check` runs (or want it to match at any depth), lead with `**/`, e.g.
-`**/payments/**`. The `to` glob matches the **imported module** as a slash path
-(`services.analytics.metrics` → `services/analytics/metrics`).
+The `to` glob matches the **imported module** as a slash path with no leading
+slash (`services.analytics.metrics` → `services/analytics/metrics`).
 
-**Footgun — matching a package takes several edges; the import is a slash-path
-with no leading slash.** For a package `foo`, the candidate paths differ by how
-it's imported, and each needs its own `to` glob:
+**Matching a package — how the import shape maps to a glob.** For a package
+`foo`, the candidate path depends on how it's imported:
 
 | import | candidate | glob that matches |
 |---|---|---|
 | `import foo` | `foo` | `to: "foo"` (exact) |
-| `from foo.bar import x` / `import foo.bar` | `foo/bar` | `to: "foo/**"` |
+| `from foo.bar import x` / `import foo.bar` | `foo/bar` | `to: "**/foo/**"` |
 | nested `app.foo.bar` | `app/foo/bar` | `to: "**/foo/**"` |
 
-So `**/foo/**` (a leading `**/` requires a segment *before* `foo`) matches the
-**nested** case only — **not** a top-level `import foo` or `from foo.x`. To fully
-forbid the `foo` package, give it all three edges (`foo`, `foo/**`,
-`**/foo/**`). This is easy to get wrong and fails *open* (silently no violation),
-so always dry-run `warden check` against a real offending import to confirm the
-rule actually fires.
+Because a leading `**/` matches at any depth (including the root), **`**/foo/**`
+catches every submodule import of `foo` — top-level `from foo.x` *and* nested
+`from app.foo.x`**. The one case it misses is a bare `import foo` (candidate
+`foo`, no submodule segment), which needs an exact `to: "foo"`. So forbidding a
+package fully is two edges: `**/foo/**` + `foo`. This fails *open* (a miss is
+silently no violation), so always dry-run `warden test <rule> <path>` (or
+`warden check`) against a real offending import to confirm the rule fires.
 
 ### query — arbitrary structural check via a tree-sitter query (single language)
 
@@ -183,7 +172,9 @@ a string or identifier — precision a regex can't give.
 violation, so a query with an auxiliary capture (e.g. `(#eq? @a @b)` captures
 both `@a` and `@b`) reports the same problem twice. Capture just the node you
 want flagged; use string-literal predicates (`(#eq? @m "unwrap")`) rather than
-capturing a second node when you only need to compare against a constant.
+capturing a second node when you only need to compare against a constant. To
+match a keyword itself (e.g. ban `unsafe`), match its anonymous node:
+`("unsafe") @kw`.
 
 **The honest limit — a query rule is single-language.** Unlike `structural`
 (where one `to:` glob spans languages because imports normalize to slash-paths),
@@ -195,36 +186,19 @@ rules — one per grammar. The `language` must be one warden supports (`python`,
 `.scm` or a node kind that doesn't exist in that grammar fails when the rule
 loads, not silently at runtime. Text predicates (`#eq?`, `#match?`, `#any-of?`)
 are applied. As with `structural`, files that don't parse are skipped (fail-open)
-— always dry-run `warden check` against a real offending file to confirm it
-fires.
-
-### llm — semantic check delegated to Claude
-
-```yaml
-match:
-  type: llm
-  prompt: "Flag any logging or print statement that includes personally identifiable information such as email addresses, full names, phone numbers, or government IDs."
-```
-
-The warden sends `why` + `prompt` + the changed code to Claude (headless
-`claude -p`) and expects a strict JSON verdict. Anything malformed, or `claude`
-being unavailable, is treated as **inconclusive → pass** (and the layer is
-skippable with `--no-llm`), so an `llm` rule must never be the only thing
-standing between you and a critical violation — pair critical checks with a
-deterministic `pattern`/`structural` rule too. Write the prompt as one precise,
-single-criterion instruction; vague prompts produce noisy verdicts.
+— always dry-run against a real offending file to confirm it fires.
 
 ## Workflow
 
 1. **Translate the intent into the smallest match type.** Literal token or call
    → `pattern`. Import/dependency boundary → `structural`. A structural check
    that isn't an import (banned call, `unsafe`, syntax shape), single-language →
-   `query`. Needs judgment → `llm`.
+   `query`.
 2. **Fill the metadata.** Pick a kebab-case `id`, an actionable `description`,
    and a `why` that states the real risk.
-3. **Set scope / enforcement / weight.** Hard stop → `block`; nudge that should
-   lower the score → `warn`; observe-only → `audit`. Weight 4/2/1 by severity.
-   Add `runtime` to `scope` only if a single action can be judged against it.
+3. **Set scope / enforcement.** Hard stop → `block`; nudge → `warn`; observe-only
+   → `audit`. Add `runtime` to `scope` only if a single action can be judged
+   against it.
 4. **Write one file** to the project's rules directory as `<id>.yaml`. One rule
    per file — the loader treats each file as a single rule and ids must be
    unique across files.
@@ -232,9 +206,9 @@ single-criterion instruction; vague prompts produce noisy verdicts.
    somewhere other than `./rules` or `$CLAUDE_PROJECT_DIR/rules` — in this repo
    the sample policy is `demo/rules`). Fix anything it reports; the message names
    the file and field.
-6. **Optionally dry-run** the rule against code to confirm it fires where you
-   expect: `warden check <path> --rules <dir>` (add `--no-llm` to skip the
-   semantic layer).
+6. **Dry-run** to confirm it fires where you expect: `warden test <rule.yaml>
+   <path>` (one rule, no rules dir needed), or `warden check <path> --rules
+   <dir>`.
 
 ## Guardrails (and why)
 
@@ -247,18 +221,18 @@ single-criterion instruction; vague prompts produce noisy verdicts.
   keeping `warn`/`block` is better than dropping to `audit` to hide the noise.
 - **One rule per file, unique id.** The loader maps file → rule; a duplicate id
   is a hard error.
-- **Prefer deterministic layers.** Don't write an `llm` rule for something a
-  `pattern` catches — it's slower, costs a call, and won't run offline.
-- **The runtime gate ignores weight/score.** Don't tune weight hoping to change
-  runtime behavior; only `enforcement` matters there.
+- **Prefer `query` over `pattern` when you mean a syntactic construct.** A regex
+  matches substrings in strings/comments; a query matches the real AST node.
+- **Dry-run before trusting a rule.** Structural/query rules fail open, so a
+  wrong glob or node kind silently matches nothing — `warden test` shows you.
 
 ## Worked examples (shipped in this repo)
 
-Each demonstrates one concept — read them under `demo/rules/`:
+Each demonstrates one concept — read them under `demo/rules/` and `rules/`:
 
-| id | match | enforcement | weight | scope | shows |
-|---|---|---|---|---|---|
-| `no-env-vars` | pattern | block | 4 | ci, runtime | critical rule in both gates |
-| `no-cross-module-coupling` | structural | block | 4 | ci | architectural boundary |
-| `no-pii-in-logs` | llm | warn | 2 | ci | semantic, score-only |
-| `prefer-flag-helper` | pattern | audit | 1 | ci | audit mode (logged, unscored) |
+| id | match | enforcement | scope | shows |
+|---|---|---|---|---|
+| `no-env-vars` | pattern | block | ci, runtime | critical rule in both gates |
+| `no-cross-module-coupling` | structural | block | ci | architectural boundary |
+| `prefer-flag-helper` | pattern | audit | ci | audit mode (logged, non-blocking) |
+| `no-unwrap-in-src` | query | block | ci, runtime | structural check beyond imports |
