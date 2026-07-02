@@ -83,7 +83,7 @@ dia · **M** ≈ poucos dias · **L** ≈ semana+.
 | ID | Item | Quando | Track | Impacto | Esforço |
 |----|------|--------|-------|---------|---------|
 | ~~R4~~ | ~~`warden test` / dry-run de regra~~ | ✅ | Autoria | **feito** — fecha o loop de retenção | M |
-| R2 | `validate --against` avisa regra morta (casa 0) | agora | Autoria | Alto (mata o pior modo de falha) | S |
+| ~~R2~~ | ~~`validate --against` avisa regra morta (casa 0 arquivos)~~ | ✅ | Autoria | **feito** — mata o pior modo de falha | S |
 | R5 | `warden new-rule --type <t>` (template por tipo) | agora | Autoria | Alto | S |
 | R6 | Normalizar o footgun do glob (`src/**`) | agora | Autoria | Médio | S |
 | R3 | Mensagens de erro que ensinam o fix | agora | Polimento | Médio | S |
@@ -126,10 +126,13 @@ A DX central do runtime: parar de escrever regra às cegas.
   e lista `file:line → snippet` + contagens. Engine em `ci_gate::run_rule`;
   carregamento de regra única em `load::load_rule_file`. Cobre o "send test email" do
   Resend para regras.
-- **R2 — Aviso de regra morta.** `validate` só checa forma; uma regra com regex
-  errado, node kind existente-mas-improdutivo ou `paths` que não casa nada valida e
-  silenciosamente não faz nada. — *Done when:* `warden validate --against <path>`
-  reporta `regra X: casou 0 arquivos/nós` como warning. Reaproveita `ci_gate`.
+- **R2 — Aviso de regra morta. ✅ Feito.** `warden validate --against <path>` roda
+  cada regra sobre o path (via `ci_gate::coverage`, gather único) e reporta
+  `✓ regra  tipo  N files · M hits`. **Decisão de design:** `0 hits` em N arquivos é
+  *informativo* (código limpo *ou* não casa — saudável), só `paths` casou **0
+  arquivos** vira `⚠` (a regra não consegue disparar). `--strict` → exit 1 nesse
+  caso (pega em CI). **Sinergia com R6:** o R2 *revela* o footgun de glob (`src/**`
+  vs `**/src/**`); o R6 depois o *elimina*.
 - **R5 — `warden new-rule --type <t>`.** Emite o template correto por tipo, matando o
   custo dos sub-schemas diferentes. — *Done when:* gera YAML válido comentado para
   `pattern|imports|query`, pronto para `validate`.

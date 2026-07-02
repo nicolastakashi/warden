@@ -25,7 +25,7 @@ cargo test --test gates          # one integration test file (tests/gates.rs)
 cargo test runtime_blocks_env    # a single test by name
 
 # run the CLI (rules dir is required — see "Rules live in the consuming project")
-cargo run -- validate --rules <dir>
+cargo run -- validate --rules <dir> [--against <path>] [--strict]  # --against: coverage per rule
 cargo run -- check <path> --rules <dir> [--format human|json]
 echo '<PreToolUse payload>' | cargo run -- gate --rules <dir>
 cargo run -- test <rule.yaml> <path>   # dry-run ONE rule (no rules dir needed)

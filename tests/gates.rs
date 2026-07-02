@@ -244,6 +244,41 @@ fn run_rule_honours_the_rule_paths_scope() {
     assert!(violations.is_empty());
 }
 
+fn pattern_rule(id: &str, paths: Option<&str>, pattern: &str) -> Rule {
+    let paths_line = paths.map(|p| format!("paths: {p}\n")).unwrap_or_default();
+    let yaml = format!(
+        "id: {id}\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\n{paths_line}match:\n  type: pattern\n  patterns: ['{pattern}']\n"
+    );
+    build_rule(&serde_norway::from_str(&yaml).unwrap(), "t").unwrap()
+}
+
+#[test]
+fn coverage_reports_scanned_and_hits_per_rule() {
+    // R2 engine: dry-run the whole rule set against a path, gathering files once.
+    let hitting = pattern_rule("hits", None, r"os\.getenv"); // fires in examples
+    let dead = pattern_rule("dead", Some(r#"["nonexistent/**"]"#), r"os\.getenv"); // paths scope away
+    let clean = pattern_rule("clean", None, "ZZZ_NOT_PRESENT_ZZZ"); // scans, matches nothing
+
+    let report = warden::ci_gate::coverage(&[hitting, dead, clean], &examples());
+    assert!(report.total_files >= 3, "the examples tree has files");
+    let by = |id: &str| {
+        report
+            .rules
+            .iter()
+            .find(|c| c.rule_id == id)
+            .unwrap_or_else(|| panic!("coverage for {id}"))
+    };
+    assert!(
+        by("hits").scanned > 0 && by("hits").hits == 1,
+        "one os.getenv hit"
+    );
+    assert_eq!(by("dead").scanned, 0, "paths scope excludes every file");
+    assert!(
+        by("clean").scanned > 0 && by("clean").hits == 0,
+        "scans files but matches nothing (healthy, not dead)"
+    );
+}
+
 #[test]
 fn load_rule_file_reads_a_single_rule() {
     // `warden test` loads one rule file directly, before it lives in a rules dir.

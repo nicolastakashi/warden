@@ -177,3 +177,23 @@ the schema change (dropping `weight`) and rule rewrites cost nothing (backward
 compatibility is not a concern for this POC). The one thing to reintroduce when
 the CI chapter starts is scoring — but diff-scoped (see `conclusion.md`), so it
 scores *new* code, not pre-existing debt.
+
+## 11. `validate --against` — 0 files is a warning, 0 hits is not
+
+R2 (`warden validate --against <path>`) dry-runs the rule set over a path to
+catch a *dead rule* before it lands. The roadmap phrased the signal as "casou 0
+arquivos/nós" (0 files *or* 0 nodes), but we deliberately split those:
+
+- **`paths` matched 0 files → `⚠` (actionable).** The rule literally cannot fire
+  here; almost always a glob mistake (the `src/**` vs `**/src/**` footgun, R6).
+- **0 hits on N scanned files → neutral, not a warning.** A *correct* rule over
+  *clean* code matches 0 — that's the healthy, expected state. Flagging it would
+  cry wolf on every well-behaved rule and train the user to ignore the output.
+
+We can't cheaply tell "clean code" from "rule doesn't match what you think", so
+the `0 hits` line stays informational and points at `warden test` to inspect.
+`--strict` makes only a *genuine* dead rule exit 1 (0 files while the target
+*has* files); an empty/mistyped target is a bad path, not a dead rule, so it
+prints "no files found" and exits 0 like `warden check` — it never trips
+`--strict`. The default (no `--strict`) is advisory. Engine is
+`ci_gate::coverage` (gathers files once), reused from `run_rule` (R4).

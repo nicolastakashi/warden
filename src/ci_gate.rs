@@ -116,6 +116,49 @@ pub fn run_rule(rule: &Rule, target: &str) -> (usize, Vec<Violation>) {
     (scanned, violations)
 }
 
+/// Per-rule coverage from a dry-run against a path (the data behind
+/// `warden validate --against`). `scanned` = files the rule's `paths` selected;
+/// `hits` = violations found among them.
+#[derive(Debug, Clone)]
+pub struct RuleCoverage {
+    pub rule_id: String,
+    pub match_type: String,
+    pub scanned: usize,
+    pub hits: usize,
+}
+
+/// The result of dry-running a whole rule set against a path.
+#[derive(Debug, Clone)]
+pub struct CoverageReport {
+    /// Total scannable files found under the target (before any `paths` scope).
+    /// Zero means the path itself yielded nothing — a bad target, not a dead
+    /// rule — so the caller can say so instead of flagging every rule.
+    pub total_files: usize,
+    pub rules: Vec<RuleCoverage>,
+}
+
+/// Dry-run every rule against `target`, gathering files **once**. Unlike
+/// `run_rule` (one rule, gathers per call), this reports coverage across a whole
+/// rule set: it walks the path a single time and scopes per rule. Ignores
+/// `scope` — coverage is "can this rule fire here", not ci/runtime.
+pub fn coverage(rules: &[Rule], target: &str) -> CoverageReport {
+    let units = gather_units(target);
+    let total_files = units.len();
+    let rules = rules
+        .iter()
+        .map(|rule| {
+            let scoped = units_for_rule(&units, rule);
+            RuleCoverage {
+                rule_id: rule.id.clone(),
+                match_type: rule.match_type.clone(),
+                scanned: scoped.len(),
+                hits: run_matcher(&scoped, rule).len(),
+            }
+        })
+        .collect();
+    CoverageReport { total_files, rules }
+}
+
 fn match_order(match_type: &str) -> u8 {
     match match_type {
         "pattern" => 0,

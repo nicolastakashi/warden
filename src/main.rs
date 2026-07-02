@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 
 use warden::adapters::claude_code::{format_claude_response, parse_claude_payload};
-use warden::ci_gate::{run_check, run_rule};
+use warden::ci_gate::{CoverageReport, coverage, run_check, run_rule};
 use warden::load::{load_rule_file, load_rules};
 use warden::matchers::Violation;
 use warden::report::human::render_human;
@@ -31,6 +31,12 @@ enum Command {
     Validate {
         #[arg(long)]
         rules: Option<PathBuf>,
+        /// dry-run every rule against this path and report coverage (files scanned, hits)
+        #[arg(long)]
+        against: Option<String>,
+        /// with --against, exit 1 if any rule matches 0 files (catch a dead rule in CI)
+        #[arg(long)]
+        strict: bool,
     },
     /// run the CI gate over a path/glob
     Check {
@@ -53,6 +59,60 @@ enum Command {
         /// path, directory, or glob to run it against
         path: String,
     },
+}
+
+/// Human-facing `warden validate --against` output: per-rule coverage, with a
+/// `⚠` on any rule whose `paths` matched no files (the one actionable "dead
+/// rule" signal — `0 hits` on real files is healthy, so it stays neutral).
+fn render_coverage(report: &CoverageReport, target: &str) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    if report.total_files == 0 {
+        let _ = write!(
+            out,
+            "no files found under `{target}` — nothing to check coverage against."
+        );
+        return out;
+    }
+    let _ = writeln!(out, "coverage vs `{target}` (dry-run, no enforcement):");
+    let id_w = report
+        .rules
+        .iter()
+        .map(|c| c.rule_id.len())
+        .max()
+        .unwrap_or(0);
+    let mt_w = report
+        .rules
+        .iter()
+        .map(|c| c.match_type.len())
+        .max()
+        .unwrap_or(0);
+    for c in &report.rules {
+        if c.scanned == 0 {
+            let _ = writeln!(
+                out,
+                "  ⚠ {:id_w$}  {:mt_w$}   0 files · paths matched nothing",
+                c.rule_id, c.match_type
+            );
+        } else {
+            let _ = writeln!(
+                out,
+                "  ✓ {:id_w$}  {:mt_w$}   {} files · {} hits",
+                c.rule_id, c.match_type, c.scanned, c.hits
+            );
+        }
+    }
+    let dead = report.rules.iter().filter(|c| c.scanned == 0).count();
+    if dead > 0 {
+        let _ = write!(
+            out,
+            "\n⚠ {dead} rule(s) scoped to 0 files — the `paths` glob matches nothing here\n  \
+             (the `src/**` vs `**/src/**` footgun?). Inspect any rule with:\n  \
+             warden test <rule.yaml> {target}"
+        );
+    }
+    out.truncate(out.trim_end().len());
+    out
 }
 
 /// Human-facing `warden test` output: what the rule caught, `file:line → snippet`.
@@ -112,7 +172,11 @@ fn rules_dir(explicit: Option<PathBuf>) -> PathBuf {
 fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
-        Command::Validate { rules } => {
+        Command::Validate {
+            rules,
+            against,
+            strict,
+        } => {
             let dir = rules_dir(rules);
             match load_rules(&dir) {
                 Ok(rules) => {
@@ -125,6 +189,22 @@ fn main() -> ExitCode {
                             r.enforcement,
                             r.scope.join(",")
                         );
+                    }
+                    // --against: dry-run the rules over a path and report coverage.
+                    if let Some(target) = against {
+                        let report = coverage(&rules, &target);
+                        println!("\n{}", render_coverage(&report, &target));
+                        // A rule scoped to 0 files can never fire — with --strict
+                        // that's a failure (catch a dead rule in CI); otherwise
+                        // it's advisory. An empty target (total_files == 0) is a
+                        // bad path, not a dead rule — render_coverage already says
+                        // so, so it must NOT trip --strict (exit 0, like `check`).
+                        if strict
+                            && report.total_files > 0
+                            && report.rules.iter().any(|c| c.scanned == 0)
+                        {
+                            return ExitCode::FAILURE;
+                        }
                     }
                     ExitCode::SUCCESS
                 }
