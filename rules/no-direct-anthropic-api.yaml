@@ -6,6 +6,7 @@ scope: [ci, runtime]
 enforcement: block
 
 paths:
+  - "src/**"
   - "**/src/**"
 
 match:
