@@ -7,30 +7,20 @@ enforcement: block
 
 # Core modules only. Deliberately excludes main.rs (the binary, which wires the
 # adapter) and src/adapters/ itself (it *is* the Claude surface).
-# Each core module is listed twice — bare `src/…` (warden run at the repo root,
-# e.g. `warden check src`) and `**/src/…` (the hook passes an absolute path).
-# The `**/` prefix needs a segment before `src`, so it alone misses the root
-# case — the `src/**` glob footgun. R6 will let us drop the `**/` duplicates.
+# Core modules only. A leading `**/` matches at any depth including the repo
+# root (R6), so one glob per module covers both `warden check src` (relative)
+# and the hook's absolute path. Deliberately excludes main.rs (the binary, which
+# wires the adapter) and src/adapters/ itself (it *is* the Claude surface).
 paths:
-  - "src/matchers/**"
   - "**/src/matchers/**"
-  - "src/report/**"
   - "**/src/report/**"
-  - "src/ci_gate.rs"
   - "**/src/ci_gate.rs"
-  - "src/runtime_gate.rs"
   - "**/src/runtime_gate.rs"
-  - "src/schema.rs"
   - "**/src/schema.rs"
-  - "src/results.rs"
   - "**/src/results.rs"
-  - "src/load.rs"
   - "**/src/load.rs"
-  - "src/glob.rs"
   - "**/src/glob.rs"
-  - "src/lang.rs"
   - "**/src/lang.rs"
-  - "src/lib.rs"
   - "**/src/lib.rs"
 
 match:

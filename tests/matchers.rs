@@ -159,10 +159,11 @@ fn structural_is_multi_language_go() {
 }
 
 #[test]
-fn structural_glob_top_level_vs_nested_package() {
-    // The `to` glob matches the imported module as a slash path with NO leading
-    // slash, so `**/foo/**` (which needs a segment before `foo`) silently MISSES
-    // a top-level import of `foo` — a fail-open footgun. Lock the behavior.
+fn structural_glob_matches_package_at_any_depth() {
+    // R6: a leading `**/` matches zero-or-more segments, so `**/foo/**` catches a
+    // forbidden package whether imported top-level (`from foo.x`) or nested
+    // (`from app.foo.x`) — the old footgun (top-level silently missed) is fixed.
+    // The `to` glob matches the imported module as a slash path, no leading slash.
     fn forbid_to(to: &str) -> Rule {
         rule_from(&format!(
             "id: r\ndescription: d\nwhy: w\nscope: [ci]\nenforcement: block\nmatch:\n  type: structural\n  forbidden:\n    - from: \"app/**\"\n      to: \"{to}\"\n"
@@ -174,11 +175,12 @@ fn structural_glob_top_level_vs_nested_package() {
     assert_eq!(
         match_structural(std::slice::from_ref(&top), &forbid_to("legacy/**")).len(),
         1,
-        "legacy/** must match a top-level package import"
+        "legacy/** matches a top-level package import"
     );
-    assert!(
-        match_structural(&[top], &forbid_to("**/legacy/**")).is_empty(),
-        "**/legacy/** must NOT match a top-level import (the footgun)"
+    assert_eq!(
+        match_structural(std::slice::from_ref(&top), &forbid_to("**/legacy/**")).len(),
+        1,
+        "**/legacy/** now matches a top-level import too (footgun fixed)"
     );
 
     // nested: `from app.legacy.helpers import x` -> "app/legacy/helpers"
@@ -189,8 +191,8 @@ fn structural_glob_top_level_vs_nested_package() {
         "**/legacy/** matches a nested package import"
     );
 
-    // bare: `import legacy` -> candidate "legacy". Only an exact `to: "legacy"`
-    // catches it; neither `legacy/**` nor `**/legacy/**` matches a bare name.
+    // bare: `import legacy` -> candidate "legacy" (no submodule). A `/**` glob
+    // needs a segment after `legacy`, so only an exact `to: "legacy"` catches it.
     let bare = CodeUnit::new("app/service.py", "import legacy\n");
     assert_eq!(
         match_structural(std::slice::from_ref(&bare), &forbid_to("legacy")).len(),
@@ -198,8 +200,12 @@ fn structural_glob_top_level_vs_nested_package() {
         "an exact `to: legacy` catches a bare `import legacy`"
     );
     assert!(
+        match_structural(std::slice::from_ref(&bare), &forbid_to("**/legacy/**")).is_empty(),
+        "**/legacy/** does not match a bare `import legacy` (no submodule segment)"
+    );
+    assert!(
         match_structural(&[bare], &forbid_to("legacy/**")).is_empty(),
-        "legacy/** does NOT catch a bare `import legacy`"
+        "legacy/** does not catch a bare `import legacy`"
     );
 }
 

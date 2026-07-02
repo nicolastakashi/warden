@@ -13,6 +13,16 @@ fn translate(pattern: &str) -> String {
     let n = chars.len();
     let mut out = String::new();
     let mut i = 0;
+    // A *leading* `**/` matches zero or more leading path segments
+    // (gitignore-style globstar), so `**/src/**` matches a top-level `src/…` as
+    // well as a nested `a/src/…`. Without this, the `**/` still needs a literal
+    // `/` before it (fnmatch's `*` crosses `/` but doesn't conjure the
+    // separator), which is the documented glob footgun. Only a leading `**/` is
+    // special-cased; `*`/`**` elsewhere keep fnmatch semantics.
+    if chars.starts_with(&['*', '*', '/']) {
+        out.push_str("(?:.*/)?");
+        i = 3;
+    }
     while i < n {
         let c = chars[i];
         match c {
@@ -76,5 +86,20 @@ mod tests {
     fn module_paths() {
         assert!(fnmatch("src/notifications/email", "**/notifications/**"));
         assert!(!fnmatch("src/notifications", "**/notifications/**"));
+    }
+
+    #[test]
+    fn leading_globstar_matches_top_level_and_nested() {
+        // R6: a leading `**/` matches zero-or-more leading segments, so one glob
+        // covers both the repo-root case and the nested case — no more
+        // `src/**` + `**/src/**` duplication.
+        assert!(fnmatch("src/main.rs", "**/src/**")); // top-level (was the footgun)
+        assert!(fnmatch("a/b/src/main.rs", "**/src/**")); // nested
+        assert!(fnmatch("foo/bar.py", "**/foo/**")); // structural: top-level package
+        assert!(fnmatch("app/foo/bar.py", "**/foo/**")); // nested package
+        assert!(!fnmatch("other/bar.py", "**/foo/**")); // still ignores unrelated
+        // A leading `**/` before a filename matches it at the root, too.
+        assert!(fnmatch("ci_gate.rs", "**/ci_gate.rs"));
+        assert!(fnmatch("src/ci_gate.rs", "**/ci_gate.rs"));
     }
 }

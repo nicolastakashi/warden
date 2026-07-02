@@ -65,7 +65,7 @@ Some invariants are sharp enough to be **enforced by warden's own rules** (dogfo
 - **Prefer `&[CodeUnit]`/references over cloning file contents** in matchers and hot paths. `units_for_rule` currently clones; at repo scale that's real cost. Don't add more content clones.
 - **User-facing output goes through `report/` or `main`; warnings via `eprintln!`.** Don't scatter `println!` across the core.
 - **Error messages teach the next step** (name the file/flag/fix), not just the state.
-- **Path-scoped rules list both `src/**` and `**/src/**`** until R6 lands: `**/src/**` needs a segment before `src`, so it alone misses a repo-root relative target (the glob footgun; `warden validate --against <path>` surfaces it as `⚠ 0 files`).
+- **A leading `**/` matches at any depth, including the repo root** (R6). So `**/src/**` scopes a rule to `src/` whether warden runs relative (`warden check src`) or via the hook's absolute path — no need to also list a bare `src/**`. `warden validate --against <path>` flags a `paths` glob that matches nothing as `⚠ 0 files`, so a dead scope is caught immediately.
 
 ## Rules live in the consuming project — the engine ships none
 

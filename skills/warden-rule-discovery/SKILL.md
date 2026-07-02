@@ -10,7 +10,7 @@ description: >-
   decided rule, which is the sibling skill `warden-rule-author`. It surveys the
   repo, proposes a prioritized, evidence-backed rule set, confirms the real
   intent with a maintainer, then hands each confirmed rule to the author skill.
-compatibility: "Requires the warden CLI; llm-rule dry-runs also need the claude CLI."
+compatibility: "Requires the warden CLI."
 ---
 
 # Discovering Warden rules for a codebase
@@ -88,14 +88,13 @@ A zero-rules repo should not wake up to a wall of blocking failures. Defaults:
 - **Enforcement:** start at `warn` for real conventions, `audit` for "observe
   adoption / not sure yet". Reserve `block` for things the team explicitly wants
   to stop, and usually only after the existing violations are cleaned up.
-- **Weight:** `4` critical, `2` moderate, `1` minor — for the CI score.
-- **Scope with `paths`.** If a pattern/llm rule would be noisy repo-wide because
+- **Scope with `paths`.** If a pattern rule would be noisy repo-wide because
   the convention only holds in certain areas (e.g. "no elevated logging *in
   rendering paths*", "no env gating *in feature code*"), scope it with `paths`
   rather than dropping to `audit` to hide the noise. Boundary/infra code often
   legitimately does what's forbidden in feature code.
 - **Match type:** literal token/call → `pattern`; import boundary → `structural`
-  (Python only); needs judgment → `llm` (and never repo-wide — scope it).
+  (Python/Go); a structural check that isn't an import → `query` (single language).
 
 ## Output — the proposal
 
@@ -105,8 +104,8 @@ Present a prioritized table the maintainer can react to. For each candidate:
 |---|---|
 | intent | the convention in one line ("gate features with flags, not env checks") |
 | evidence | the doc that states it + grep extent ("AGENTS.md; 38 hits under features/") |
-| match type | pattern / structural / query / llm, with the concrete patterns, globs, or `.scm` |
-| enforcement / weight | with the conservative default and your reasoning |
+| match type | pattern / structural / query, with the concrete patterns, globs, or `.scm` |
+| enforcement | with the conservative default and your reasoning |
 | paths | the scope, if narrower than the whole repo |
 | confidence | high / needs-confirmation — flag the ones you're guessing at |
 
@@ -118,14 +117,14 @@ clearly so the human knows where to focus their correction.
 For each rule the maintainer confirms:
 
 1. Hand it to **`warden-rule-author`** to produce the `rules/*.yaml` (it owns
-   the schema, ids, enforcement/scope/weight/paths, and the closed-schema rules).
+   the schema, ids, enforcement/scope/paths, and the closed-schema rules).
 2. Run `warden validate --rules <dir>` to prove it parses.
-3. **Dry-run** `warden check <path> --rules <dir> --no-llm` and confirm the rule
+3. **Dry-run** `warden test <rule.yaml> <path>` (or `warden check <path> --rules <dir>`) and confirm the rule
    fires on the real violations you found (and *not* on the legitimate cases you
    scoped out). A rule that validates but doesn't fire where expected — or fires
    on legit code — goes back for refinement before you call it done.
 
-Report back the rules created, where they fired, and the resulting score — and
+Report back the rules created, where they fired, and the counts — and
 which candidates were dropped or deferred, so the investigation is auditable.
 
 ## Anti-patterns in your own work

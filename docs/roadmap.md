@@ -85,7 +85,7 @@ dia · **M** ≈ poucos dias · **L** ≈ semana+.
 | ~~R4~~ | ~~`warden test` / dry-run de regra~~ | ✅ | Autoria | **feito** — fecha o loop de retenção | M |
 | ~~R2~~ | ~~`validate --against` avisa regra morta (casa 0 arquivos)~~ | ✅ | Autoria | **feito** — mata o pior modo de falha | S |
 | R5 | `warden new-rule --type <t>` (template por tipo) | agora | Autoria | Alto | S |
-| R6 | Normalizar o footgun do glob (`src/**`) | agora | Autoria | Médio | S |
+| ~~R6~~ | ~~Normalizar o footgun do glob (`src/**`)~~ | ✅ | Autoria | **feito** | S |
 | R3 | Mensagens de erro que ensinam o fix | agora | Polimento | Médio | S |
 | R10 | Output legível: cor + símbolos + contagens + timing | agora | Polimento | Médio-alto | S |
 | R7 | Binários pré-compilados + `curl\|sh` + Homebrew | agora | Hero-path | **Maior** (corta a barreira de instalação) | M |
@@ -136,9 +136,11 @@ A DX central do runtime: parar de escrever regra às cegas.
 - **R5 — `warden new-rule --type <t>`.** Emite o template correto por tipo, matando o
   custo dos sub-schemas diferentes. — *Done when:* gera YAML válido comentado para
   `pattern|imports|query`, pronto para `validate`.
-- **R6 — Normalizar o glob.** Hoje toda regra path-scoped precisa de `src/**` **e**
-  `**/src/**` (footgun em `no-unwrap-in-src.yaml`). — *Done when:* `src/**` casa
-  top-level e aninhado, **ou** `validate` avisa "glob casou 0 arquivos". `src/glob.rs`.
+- **R6 — Normalizar o glob. ✅ Feito.** Um `**/` no início do padrão passa a casar
+  zero-ou-mais segmentos (globstar), então `**/src/**` cobre top-level e aninhado —
+  chega de duplicar `src/**` + `**/src/**`. Colapsei as duplicações nas regras de
+  dogfood e consertei de quebra o footgun do `structural` (`**/foo/**` agora pega
+  `import foo` top-level). `src/glob.rs`.
 
 ### Fase 2 — Colapsar o hero-path (adoção)
 Depende da Fase 1: não adianta trazer gente para uma autoria cega.
