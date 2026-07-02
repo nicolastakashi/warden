@@ -1,0 +1,25 @@
+id: no-expect-in-src
+description: "Production Rust code must not call .expect()"
+why: "Like .unwrap(), a bare .expect() panics on the error path — and warden runs wired as a PreToolUse hook, where a panic is a denial of service on the agent it guards. Propagate errors with ? or handle them explicitly. Sibling to no-unwrap-in-src; expressed as a tree-sitter query so it matches the real method call .expect(...) and not the substring 'expect' in an identifier, string, or comment."
+
+scope: [ci, runtime]
+enforcement: block
+
+# Production code only. Tests legitimately use .expect() to assert.
+# Two edges: `src/**` matches at the repo root, `**/src/**` when src/ sits
+# deeper — the leading `**/` needs a segment before `src`, so it alone would
+# miss the top-level case (the documented glob footgun).
+paths:
+  - "src/**"
+  - "**/src/**"
+
+match:
+  type: query
+  language: rust
+  # Match `<expr>.expect(...)` — the field name of a method call, filtered to
+  # exactly "expect" (so .expect_err and identifiers named expect are untouched).
+  query: |
+    (call_expression
+      function: (field_expression
+        field: (field_identifier) @method)
+      (#eq? @method "expect"))

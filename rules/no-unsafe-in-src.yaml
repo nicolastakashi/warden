@@ -1,0 +1,18 @@
+id: no-unsafe-in-src
+description: "No `unsafe` in production code — justify and isolate it if truly needed"
+why: "Warden is a security-adjacent gate that runs inside the agent's loop; unchecked `unsafe` undermines the memory-safety guarantee that is the reason to trust a Rust binary here. There is none in src/ today — keep it that way, or force an explicit review when it's genuinely required. Expressed as a tree-sitter query on the `unsafe` keyword node, so it catches unsafe blocks, fns, impls and traits alike but not the word 'unsafe' in a comment or string."
+
+scope: [ci, runtime]
+enforcement: block
+
+paths:
+  - "src/**"
+  - "**/src/**"
+
+match:
+  type: query
+  language: rust
+  # Match the `unsafe` keyword itself (an anonymous node), wherever it appears:
+  # `unsafe { }`, `unsafe fn`, `unsafe impl`, `unsafe trait`, `unsafe extern`.
+  query: |
+    ("unsafe") @kw

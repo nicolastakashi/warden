@@ -1,0 +1,19 @@
+id: no-dbg-in-src
+description: "Remove dbg!() before committing"
+why: "dbg!() is a debugging artifact: it prints to stderr and returns its argument, so it silently ships noise — and can leak values — into production. There is no legitimate committed use in src/. Expressed as a tree-sitter query so it matches the real macro invocation, not the substring 'dbg' in an identifier or comment."
+
+scope: [ci, runtime]
+enforcement: block
+
+paths:
+  - "src/**"
+  - "**/src/**"
+
+match:
+  type: query
+  language: rust
+  # Match the `dbg!(...)` macro invocation by its macro name.
+  query: |
+    (macro_invocation
+      macro: (identifier) @name
+      (#eq? @name "dbg"))
