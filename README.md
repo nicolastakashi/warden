@@ -91,9 +91,24 @@ scanned 3 file(s) · 1 match(es):
   examples/api/handler.py:16 → return int(os.getenv("REQUEST_TIMEOUT", "30"))
 ```
 
-A clean run reports `0 matches` (fired on nothing), and a `paths` glob that
-matches no files reports `0 files matched` — so you catch a dead rule
-immediately instead of after it's wired in. Authoring help lives in two
+A clean run reports `0 matches` (fired on nothing). For the whole rule set at
+once, `warden validate --against <path>` adds a coverage report on top of the
+usual validation — `test` inspects one rule in depth, `--against` shows every
+rule's reach:
+
+```bash
+$ warden validate --rules demo/rules --against examples
+...
+coverage vs `examples` (dry-run, no enforcement):
+  ✓ no-cross-module-coupling  structural   3 files · 0 hits
+  ✓ no-env-vars               pattern      3 files · 1 hits
+  ✓ prefer-flag-helper        pattern      3 files · 1 hits
+```
+
+A rule whose `paths` match no files shows `⚠ … paths matched nothing` — it can
+never fire, so you catch a dead rule (often the `src/**` vs `**/src/**` glob
+footgun) at authoring time. Add `--strict` to make that exit 1 in CI. Authoring
+help lives in two
 [Agent Skills](https://agentskills.io) under [`skills/`](skills/) —
 `warden-rule-author` and `warden-rule-discovery` — usable by any skills-compatible
 agent (Claude Code, Cursor, Codex, …). Install them into your own project with
